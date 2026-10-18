@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
-
+from sqlalchemy.exc import IntegrityError
 from backend.database import engine
 from backend.models.user import User
 from backend.schemas import UserCreate, UserResponse, UserLogin
@@ -12,7 +12,8 @@ router = APIRouter()
 
 @router.post(
     "/users/register",
-    response_model=UserResponse
+    response_model=UserResponse,
+    status_code=201
 )
 def register_user(user_data: UserCreate):
     with Session(engine) as session:
@@ -23,8 +24,16 @@ def register_user(user_data: UserCreate):
 
 
         session.add(user)
-        session.commit()
-        session.refresh(user)
+
+        try:
+            session.commit()
+            session.refresh(user)
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Username already exists."
+            )
 
         return user
 
@@ -51,7 +60,7 @@ def login_user(user_data: UserLogin):
             )
 
         access_token = create_access_token(user.username)
-        
+
         return {
             "access_token": access_token,
             "token_type": "bearer"
