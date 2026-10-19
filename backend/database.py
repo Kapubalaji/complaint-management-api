@@ -7,6 +7,10 @@ from sqlalchemy.orm import declarative_base
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-DATABASE_URL =os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+
 engine = create_engine(DATABASE_URL)
 Base = declarative_base()
