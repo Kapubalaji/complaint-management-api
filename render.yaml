@@ -1,0 +1,46 @@
+# Render blueprint for ResolveIT (FastAPI backend + optional PostgreSQL).
+# Docs: DEPLOYMENT.md
+#
+# IMPORTANT: DATABASE_URL and SECRET_KEY are marked sync: false so this file
+# never contains secrets. Set them in the Render dashboard (they override this
+# blueprint). If you already have a PostgreSQL instance, attach it in the
+# dashboard and set DATABASE_URL from its connection details — do NOT let this
+# blueprint create a second database, or your existing data will not be used.
+
+services:
+  - type: web
+    name: resolveit-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.server:app --host 0.0.0.0 --port $PORT --workers 1
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: DATABASE_URL
+        sync: false # set in Render dashboard (existing PostgreSQL)
+      - key: SECRET_KEY
+        sync: false # set in Render dashboard (secret)
+      - key: FRONTEND_URL
+        value: https://complaint-management-api-theta.vercel.app
+      - key: CORS_ORIGINS
+        sync: false # optional, comma-separated extra origins
+      - key: OPENAI_API_KEY
+        sync: false # optional; AI triage falls back to rule-based engine
+      - key: AI_MODEL
+        value: gpt-4o-mini
+
+# To provision a NEW Render-managed PostgreSQL instance with this blueprint
+# (only if you do not already have one — this creates a separate database),
+# uncomment the block below on first-time setup only:
+#
+# databases:
+#   - name: resolveit-db
+#     plan: free
+#     databaseName: complaint_management
+#     user: complaint_app
+#     ipAllowList: [] # Render-side only; no public access
+#
+# After the database exists, copy its Internal Database URL into the
+# resolveit-api service environment as DATABASE_URL (dashboard → Environment).

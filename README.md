@@ -10,6 +10,14 @@ The application provides user registration and login, protects complaint data so
 - **Backend API:** https://complaint-management-api-zkpx.onrender.com
 - **API Documentation:** https://complaint-management-api-zkpx.onrender.com/docs
 
+## Deployment
+
+Production deployment (Vercel frontend, Render backend, PostgreSQL), required
+environment variables, database migration, initial admin setup, CORS, and
+verification steps are documented in [DEPLOYMENT.md](DEPLOYMENT.md).
+Templates for environment variables live in `.env.example` and
+`frontend/.env.example`.
+
 
 ## Technology Stack
 
