@@ -1,9 +1,11 @@
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_
 from backend.database import engine
 from backend.models.user import User
+from backend.limiter import limiter
+from backend.services.email_service import send_password_reset_email
 from backend.schemas import (
     UserCreate,
     UserResponse,
@@ -19,6 +21,8 @@ from backend.security import (
     verify_password,
     create_access_token,
     create_password_reset_token,
+    decode_password_reset_token,
+    get_password_fingerprint,
     verify_password_reset_token,
     get_current_user,
     require_role
@@ -56,7 +60,8 @@ def register_user(user_data: UserCreate):
         return user
 
 @router.post("/users/login")
-def login_user(user_data: UserLogin):
+@limiter.limit("5/minute")
+def login_user(request: Request, user_data: UserLogin):
     with Session(engine) as session:
         user = session.query(User).filter(
             User.username == user_data.username
@@ -68,7 +73,8 @@ def login_user(user_data: UserLogin):
                 detail="Invalid username or password"
             )
 
-        access_token = create_access_token(user.username, role=user.role)
+        tv = user.token_version if user.token_version is not None else 1
+        access_token = create_access_token(user.username, role=user.role, token_version=tv)
 
         return {
             "access_token": access_token,
@@ -79,33 +85,63 @@ def login_user(user_data: UserLogin):
         }
 
 @router.post("/users/forgot-password")
-def forgot_password_request(req: PasswordResetRequest):
+@limiter.limit("5/minute")
+def forgot_password_request(
+    request: Request,
+    req: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+):
     with Session(engine) as session:
         query = session.query(User).filter(User.username == req.username)
         if req.email:
             query = query.filter(User.email == req.email)
         user = query.first()
 
-        if not user:
-            # Return uniform response to prevent user enumeration attacks
-            return {"message": "If an account matches those details, a reset token has been generated.", "reset_token": None}
+        # If user exists and has an email, issue a signed token and schedule background delivery
+        if user and user.email:
+            reset_token = create_password_reset_token(user.username, user.password)
+            background_tasks.add_task(
+                send_password_reset_email,
+                to_email=user.email,
+                username=user.username,
+                reset_token=reset_token,
+            )
 
-        reset_token = create_password_reset_token(user.username)
-        return {
-            "message": "Password reset token generated successfully.",
-            "reset_token": reset_token
-        }
+    # Always return a uniform generic response to prevent account enumeration.
+    # Tokens are never returned in the API response under any condition.
+    return {
+        "message": (
+            "If an account matches those details, password reset instructions "
+            "have been prepared."
+        )
+    }
+
 
 @router.post("/users/reset-password")
-def reset_password_confirm(req: PasswordResetConfirm):
-    username = verify_password_reset_token(req.token)
+@limiter.limit("5/minute")
+def reset_password_confirm(request: Request, req: PasswordResetConfirm):
+    payload = decode_password_reset_token(req.token)
+    username = payload.get("sub")
+    token_fp = payload.get("fp")
+
     with Session(engine) as session:
         user = session.query(User).filter(User.username == username).first()
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
 
+        # Invalidate if password hash fingerprint no longer matches current password
+        current_fp = get_password_fingerprint(user.password)
+        if not token_fp or token_fp != current_fp:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired reset token: password has already been changed or token is invalid",
+            )
+
+        # Update password and increment token version transactionally
         user.password = hash_password(req.new_password)
+        user.token_version = (user.token_version or 1) + 1
         session.commit()
+
         return {"message": "Password has been successfully reset. You may now sign in."}
 
 @router.get("/users/me", response_model=UserResponse)
@@ -131,6 +167,7 @@ def update_current_user_profile(
             if not data.current_password or not verify_password(data.current_password, user.password):
                 raise HTTPException(status_code=400, detail="Incorrect current password")
             user.password = hash_password(data.new_password)
+            user.token_version = (user.token_version or 1) + 1
 
         try:
             session.commit()

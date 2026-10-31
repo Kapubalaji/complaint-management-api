@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from backend.models.user import User
 from backend.database import engine
@@ -18,21 +18,43 @@ from backend.schemas import (
 
 router = APIRouter()
 
+
+def _scoped_complaint_query(session: Session, current_user: User):
+    """Complaints the caller is allowed to see.
+
+    - admin: all complaints
+    - staff: only complaints assigned to them
+    - user: only their own complaints
+    """
+    query = session.query(Complaint)
+    if current_user.role == "admin":
+        return query
+    if current_user.role == "staff":
+        return query.filter(Complaint.assigned_staff_id == current_user.id)
+    return query.filter(Complaint.user_id == current_user.id)
+
+
+def _load_scoped_complaint(session: Session, complaint_id: int, current_user: User) -> Complaint:
+    complaint = _scoped_complaint_query(session, current_user).filter(
+        Complaint.id == complaint_id
+    ).first()
+    if complaint is None:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    return complaint
+
+
 @router.get(
     "/complaints",
     response_model=list[ComplaintResponse]
 )
 def get_complaints(current_user: User = Depends(get_current_user)):
     with Session(engine) as session:
-        # Staff and admin can view all complaints
-        if current_user.role in ["staff", "admin"]:
-            complaints = session.query(Complaint).order_by(Complaint.created_at.desc()).all()
-        else:
-            complaints = session.query(Complaint).filter(
-                Complaint.user_id == current_user.id
-            ).order_by(Complaint.created_at.desc()).all()
+        return (
+            _scoped_complaint_query(session, current_user)
+            .order_by(Complaint.created_at.desc())
+            .all()
+        )
 
-        return complaints
 
 @router.get(
     "/complaints/assigned-to-me",
@@ -47,18 +69,20 @@ def get_complaints_assigned_to_me(
         ).order_by(Complaint.created_at.desc()).all()
         return complaints
 
+
 @router.get(
     "/complaints/unassigned",
     response_model=list[ComplaintResponse]
 )
 def get_unassigned_complaints(
-    current_user: User = Depends(require_role(["staff", "admin"]))
+    current_user: User = Depends(require_role(["admin"]))
 ):
     with Session(engine) as session:
         complaints = session.query(Complaint).filter(
             Complaint.assigned_staff_id.is_(None)
         ).order_by(Complaint.created_at.desc()).all()
         return complaints
+
 
 @router.post(
     "/complaints",
@@ -67,7 +91,7 @@ def get_unassigned_complaints(
 )
 def create_complaint(
     complaint_data: ComplaintCreate,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_role(["user", "admin"]))
 ):
     with Session(engine) as session:
         # Run AI triage automatically
@@ -98,6 +122,7 @@ def create_complaint(
 
         return complaint
 
+
 @router.get(
     "/complaints/{complaint_id}",
     response_model=ComplaintResponse
@@ -107,21 +132,8 @@ def get_complaint(
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        query = session.query(Complaint).filter(Complaint.id == complaint_id)
+        return _load_scoped_complaint(session, complaint_id, current_user)
 
-        # Standard user can only access their own complaint
-        if current_user.role not in ["staff", "admin"]:
-            query = query.filter(Complaint.user_id == current_user.id)
-
-        complaint = query.first()
-        
-        if complaint is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Complaint not found"
-            )
-
-        return complaint
 
 @router.put("/complaints/{complaint_id}", response_model=ComplaintResponse)
 def update_complaint(
@@ -130,24 +142,12 @@ def update_complaint(
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        query = session.query(Complaint).filter(Complaint.id == complaint_id)
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
-        if current_user.role not in ["staff", "admin"]:
-            query = query.filter(Complaint.user_id == current_user.id)
-
-        complaint = query.first()
-        
-        if complaint is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Complaint not found"
-            )
-
-        # Non-staff users cannot change assigned_staff_id directly
-        if current_user.role not in ["staff", "admin"] and complaint_data.assigned_staff_id is not None:
+        if complaint_data.assigned_staff_id is not None and current_user.role != "admin":
             raise HTTPException(
                 status_code=403,
-                detail="Only staff or admin can assign staff"
+                detail="Only admin can assign staff"
             )
 
         complaint.title = complaint_data.title
@@ -157,7 +157,7 @@ def update_complaint(
             complaint.category = complaint_data.category
         if complaint_data.priority:
             complaint.priority = complaint_data.priority
-        if current_user.role in ["staff", "admin"] and complaint_data.assigned_staff_id is not None:
+        if current_user.role == "admin" and complaint_data.assigned_staff_id is not None:
             complaint.assigned_staff_id = complaint_data.assigned_staff_id
 
         if complaint.status.lower() in ["resolved", "closed"] and not complaint.resolved_at:
@@ -167,6 +167,7 @@ def update_complaint(
         session.refresh(complaint)
 
         return complaint
+
 
 @router.patch(
     "/complaints/{complaint_id}",
@@ -178,25 +179,14 @@ def patch_complaint(
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        query = session.query(Complaint).filter(Complaint.id == complaint_id)
-
-        if current_user.role not in ["staff", "admin"]:
-            query = query.filter(Complaint.user_id == current_user.id)
-
-        complaint = query.first()
-        
-        if complaint is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Complaint not found"
-            )
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
         update_data = complaint_data.model_dump(exclude_unset=True)
 
-        if current_user.role not in ["staff", "admin"] and "assigned_staff_id" in update_data:
+        if "assigned_staff_id" in update_data and current_user.role != "admin":
             raise HTTPException(
                 status_code=403,
-                detail="Only staff or admin can assign staff"
+                detail="Only admin can assign staff"
             )
 
         for field, value in update_data.items():
@@ -209,6 +199,7 @@ def patch_complaint(
         session.refresh(complaint)
 
         return complaint
+
 
 @router.patch("/complaints/{complaint_id}/status", response_model=ComplaintResponse)
 def update_complaint_status(
@@ -225,9 +216,7 @@ def update_complaint_status(
         )
 
     with Session(engine) as session:
-        complaint = session.query(Complaint).filter(Complaint.id == complaint_id).first()
-        if not complaint:
-            raise HTTPException(status_code=404, detail="Complaint not found")
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
         complaint.status = status_data.status
         if normalized_status in ["resolved", "closed"] and not complaint.resolved_at:
@@ -247,6 +236,7 @@ def update_complaint_status(
         session.refresh(complaint)
         return complaint
 
+
 @router.delete("/complaints/{complaint_id}")
 def delete_complaint(complaint_id: int, current_user: User = Depends(get_current_user)):
     with Session(engine) as session:
@@ -257,7 +247,7 @@ def delete_complaint(complaint_id: int, current_user: User = Depends(get_current
             query = query.filter(Complaint.user_id == current_user.id)
 
         complaint = query.first()
-        
+
         if complaint is None:
             raise HTTPException(
                 status_code=404,
@@ -269,11 +259,12 @@ def delete_complaint(complaint_id: int, current_user: User = Depends(get_current
 
     return {"message": "Complaint deleted successfully"}
 
+
 @router.patch("/complaints/{complaint_id}/assign", response_model=ComplaintResponse)
 def assign_staff_to_complaint(
     complaint_id: int,
     assign_data: ComplaintAssign,
-    current_user: User = Depends(require_role(["staff", "admin"]))
+    current_user: User = Depends(require_role(["admin"]))
 ):
     with Session(engine) as session:
         complaint = session.query(Complaint).filter(Complaint.id == complaint_id).first()
@@ -289,24 +280,21 @@ def assign_staff_to_complaint(
         session.refresh(complaint)
         return complaint
 
+
 @router.get("/complaints/{complaint_id}/comments", response_model=list[CommentResponse])
 def get_complaint_comments(
     complaint_id: int,
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        complaint = session.query(Complaint).filter(Complaint.id == complaint_id).first()
-        if not complaint:
-            raise HTTPException(status_code=404, detail="Complaint not found")
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
-        if current_user.role not in ["staff", "admin"] and complaint.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Complaint not found")
-
-        query = session.query(ComplaintComment).filter(ComplaintComment.complaint_id == complaint_id)
+        query = session.query(ComplaintComment).filter(ComplaintComment.complaint_id == complaint.id)
         if current_user.role not in ["staff", "admin"]:
             query = query.filter(ComplaintComment.is_internal == False)
 
         return query.order_by(ComplaintComment.created_at.asc()).all()
+
 
 @router.post("/complaints/{complaint_id}/comments", response_model=CommentResponse, status_code=201)
 def add_complaint_comment(
@@ -315,12 +303,7 @@ def add_complaint_comment(
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        complaint = session.query(Complaint).filter(Complaint.id == complaint_id).first()
-        if not complaint:
-            raise HTTPException(status_code=404, detail="Complaint not found")
-
-        if current_user.role not in ["staff", "admin"] and complaint.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Complaint not found")
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
         is_internal = comment_data.is_internal if current_user.role in ["staff", "admin"] else False
 

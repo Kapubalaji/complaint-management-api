@@ -107,24 +107,46 @@ class TestPhase1RBAC(unittest.TestCase):
         )
         self.assertEqual(res2.status_code, 404)
 
-    def test_staff_and_admin_can_view_all_complaints(self):
+    def test_staff_sees_only_assigned_complaints_admin_sees_all(self):
         user = self.create_test_user("user_reg", role="user")
         staff = self.create_test_user("staff1", role="staff")
+        admin = self.create_test_user("admin1", role="admin")
 
         user_token = create_access_token(user.username, role=user.role)
         staff_token = create_access_token(staff.username, role=staff.role)
+        admin_token = create_access_token(admin.username, role=admin.role)
 
-        self.client.post(
+        res = self.client.post(
             "/complaints",
             json={"title": "Printer Broken", "description": "Needs toner"},
             headers={"Authorization": f"Bearer {user_token}"}
         )
+        self.assertEqual(res.status_code, 201)
 
-        res = self.client.get("/complaints", headers={"Authorization": f"Bearer {staff_token}"})
-        self.assertEqual(res.status_code, 200)
-        complaints = res.json()
+        # Unassigned complaint is invisible to staff list
+        res_staff = self.client.get("/complaints", headers={"Authorization": f"Bearer {staff_token}"})
+        self.assertEqual(res_staff.status_code, 200)
+        self.assertEqual(res_staff.json(), [])
+
+        # Admin assigns to staff
+        res_assign = self.client.patch(
+            f"/complaints/{res.json()['id']}/assign",
+            json={"assigned_staff_id": staff.id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_assign.status_code, 200)
+
+        # Staff now sees only the assigned complaint
+        res_staff = self.client.get("/complaints", headers={"Authorization": f"Bearer {staff_token}"})
+        self.assertEqual(res_staff.status_code, 200)
+        complaints = res_staff.json()
         self.assertEqual(len(complaints), 1)
         self.assertEqual(complaints[0]["title"], "Printer Broken")
+
+        # Admin sees all complaints
+        res_admin = self.client.get("/complaints", headers={"Authorization": f"Bearer {admin_token}"})
+        self.assertEqual(res_admin.status_code, 200)
+        self.assertEqual(len(res_admin.json()), 1)
 
     def test_non_admin_cannot_change_user_roles(self):
         user = self.create_test_user("regular_guy", role="user")
@@ -156,9 +178,11 @@ class TestPhase1RBAC(unittest.TestCase):
     def test_comments_and_internal_visibility(self):
         user = self.create_test_user("reporter", role="user")
         staff = self.create_test_user("support_agent", role="staff")
+        admin = self.create_test_user("admin_agent", role="admin")
 
         user_token = create_access_token(user.username, role=user.role)
         staff_token = create_access_token(staff.username, role=staff.role)
+        admin_token = create_access_token(admin.username, role=admin.role)
 
         res = self.client.post(
             "/complaints",
@@ -166,6 +190,14 @@ class TestPhase1RBAC(unittest.TestCase):
             headers={"Authorization": f"Bearer {user_token}"}
         )
         cid = res.json()["id"]
+
+        # Admin assigns complaint to staff before staff can interact
+        res_assign = self.client.patch(
+            f"/complaints/{cid}/assign",
+            json={"assigned_staff_id": staff.id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_assign.status_code, 200)
 
         res_internal = self.client.post(
             f"/complaints/{cid}/comments",
@@ -192,6 +224,17 @@ class TestPhase1RBAC(unittest.TestCase):
             headers={"Authorization": f"Bearer {staff_token}"}
         ).json()
         self.assertEqual(len(s_comments), 2)
+
+    def test_staff_cannot_create_complaint(self):
+        staff = self.create_test_user("triage_staff", role="staff")
+        staff_token = create_access_token(staff.username, role=staff.role)
+
+        res = self.client.post(
+            "/complaints",
+            json={"title": "Unauthorized", "description": "Staff creation attempt"},
+            headers={"Authorization": f"Bearer {staff_token}"}
+        )
+        self.assertEqual(res.status_code, 403)
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,11 @@ def run_migrations():
             if "role" not in user_columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR(50) NOT NULL DEFAULT 'user';"))
             
+            if "token_version" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1;"))
+            else:
+                conn.execute(text("UPDATE users SET token_version = 1 WHERE token_version IS NULL;"))
+            
             if "created_at" not in user_columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;"))
 

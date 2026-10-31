@@ -11,4 +11,5 @@ class User(Base):
     email = Column(String(255), nullable=True, unique=True)
     full_name = Column(String(255), nullable=True)
     role = Column(String(50), nullable=False, default="user")
+    token_version = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

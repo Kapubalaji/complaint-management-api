@@ -46,6 +46,10 @@ export function isStaffRole(role) {
   return role === "staff" || role === "admin";
 }
 
+export function isAdminRole(role) {
+  return role === "admin";
+}
+
 export function canEditComplaint(complaint, session) {
   if (!complaint || !session) return false;
   return isStaffRole(session.role) || complaint.user_id === session.userId;
@@ -58,6 +62,15 @@ export function canDeleteComplaint(complaint, session) {
 
 export function canManageWorkflow(session) {
   return isStaffRole(session?.role);
+}
+
+export function canAssignComplaints(session) {
+  return isAdminRole(session?.role);
+}
+
+export function canCreateComplaints(session) {
+  const role = session?.role;
+  return role === "user" || role === "admin";
 }
 
 export function staffLabel(person) {

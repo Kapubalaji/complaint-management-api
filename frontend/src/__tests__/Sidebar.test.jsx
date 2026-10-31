@@ -40,6 +40,31 @@ describe("navigation menu contents", () => {
     expect(menuForRole("staff").map((i) => i.key)).not.toContain("users");
     expect(menuForRole("admin").map((i) => i.key)).toContain("users");
   });
+
+  it("keeps the unassigned queue admin-only", () => {
+    expect(menuForRole("user").map((i) => i.key)).not.toContain("unassigned");
+    expect(menuForRole("staff").map((i) => i.key)).not.toContain("unassigned");
+    expect(menuForRole("admin").map((i) => i.key)).toContain("unassigned");
+  });
+
+  it("gives staff an assigned queue without all-complaints nav", () => {
+    const staffKeys = menuForRole("staff").map((i) => i.key);
+    expect(staffKeys).toContain("queue");
+    expect(staffKeys).toContain("complaints");
+    const complaintsItem = menuForRole("staff").find((i) => i.key === "complaints");
+    expect(complaintsItem.label).toBe("My Complaints");
+  });
+
+  it("labels admin complaints as All Complaints", () => {
+    const adminItem = menuForRole("admin").find((i) => i.key === "complaints");
+    expect(adminItem.label).toBe("All Complaints");
+  });
+
+  it("removes New Complaint from staff navigation while keeping it for user and admin", () => {
+    expect(menuForRole("staff").map((i) => i.key)).not.toContain("compose");
+    expect(menuForRole("user").map((i) => i.key)).toContain("compose");
+    expect(menuForRole("admin").map((i) => i.key)).toContain("compose");
+  });
 });
 
 describe("Sidebar drawer", () => {

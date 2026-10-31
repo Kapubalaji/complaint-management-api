@@ -216,9 +216,10 @@ class TestPhase3AIEngine(unittest.TestCase):
         )
         self.assertEqual(reanalyze.status_code, 404)
 
-    def test_reanalyze_allowed_for_staff(self):
+    def test_reanalyze_allowed_for_assigned_staff(self):
         user = self.create_user("owner", role="user")
         staff = self.create_user("agent", role="staff")
+        admin = self.create_user("boss", role="admin")
 
         res = self.client.post(
             "/complaints",
@@ -227,12 +228,52 @@ class TestPhase3AIEngine(unittest.TestCase):
         )
         cid = res.json()["id"]
 
+        # Admin assigns first
+        assign = self.client.patch(
+            f"/complaints/{cid}/assign",
+            headers=self.auth(admin),
+            json={"assigned_staff_id": staff.id},
+        )
+        self.assertEqual(assign.status_code, 200)
+
         reanalyze = self.client.post(
             f"/complaints/{cid}/reanalyze",
             headers=self.auth(staff)
         )
         self.assertEqual(reanalyze.status_code, 200)
         self.assertEqual(reanalyze.json()["category"], "IT & Systems")
+
+    def test_reanalyze_denied_for_unassigned_staff(self):
+        user = self.create_user("owner2", role="user")
+        staff = self.create_user("agent2", role="staff")
+        other_staff = self.create_user("agent3", role="staff")
+
+        res = self.client.post(
+            "/complaints",
+            json={"title": "Projector broken", "description": "Lamp failure in hall."},
+            headers=self.auth(user)
+        )
+        cid = res.json()["id"]
+
+        # Unassigned staff cannot reanalyze
+        reanalyze = self.client.post(
+            f"/complaints/{cid}/reanalyze",
+            headers=self.auth(staff)
+        )
+        self.assertEqual(reanalyze.status_code, 404)
+
+        # Even after assignment to another staff, this staff cannot reanalyze
+        session = TestingSessionLocal()
+        complaint = session.get(Complaint, cid)
+        complaint.assigned_staff_id = other_staff.id
+        session.commit()
+        session.close()
+
+        reanalyze = self.client.post(
+            f"/complaints/{cid}/reanalyze",
+            headers=self.auth(staff)
+        )
+        self.assertEqual(reanalyze.status_code, 404)
 
     # --- Scenario: provider failure falls back to rule engine ---
 

@@ -1,10 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from backend.database import engine
 from backend.models.user import User
 from backend.models.complaint import Complaint
-from backend.security import get_current_user, require_role
+from backend.security import get_current_user
 from backend.schemas import AIAnalysisResult, ComplaintResponse
 from backend.services.ai_service import analyze_complaint_with_ai
 
@@ -43,13 +43,9 @@ def reanalyze_complaint(
     current_user: User = Depends(get_current_user)
 ):
     with Session(engine) as session:
-        complaint = session.query(Complaint).filter(Complaint.id == complaint_id).first()
-        if not complaint:
-            raise HTTPException(status_code=404, detail="Complaint not found")
+        from backend.routers.complaints import _load_scoped_complaint
 
-        # Standard user can only re-analyze their own complaint; staff/admin can re-analyze any
-        if current_user.role not in ["staff", "admin"] and complaint.user_id != current_user.id:
-            raise HTTPException(status_code=404, detail="Complaint not found")
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
 
         staff_list = get_staff_workload_list(session)
         analysis = analyze_complaint_with_ai(complaint.title, complaint.description, staff_list)

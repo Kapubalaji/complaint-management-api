@@ -135,3 +135,133 @@ describe("App mobile navigation", () => {
     expect(matches.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("role-based dashboards and navigation", () => {
+  it("redirects a regular user session to the User Dashboard", async () => {
+    seedSession("user");
+    render(<App />);
+
+    expect(await screen.findByTestId("user-dashboard")).toBeTruthy();
+    expect(screen.queryByTestId("admin-dashboard")).toBeNull();
+    expect(screen.queryByTestId("staff-dashboard")).toBeNull();
+    expect(await screen.findByText("User Dashboard")).toBeTruthy();
+  });
+
+  it("redirects a staff session to the Staff Dashboard", async () => {
+    seedSession("staff");
+    render(<App />);
+
+    expect(await screen.findByTestId("staff-dashboard")).toBeTruthy();
+    expect(screen.queryByTestId("admin-dashboard")).toBeNull();
+    expect(screen.queryByTestId("user-dashboard")).toBeNull();
+    expect(await screen.findByText("Staff Dashboard")).toBeTruthy();
+    expect(screen.getByText("Assigned to Me")).toBeTruthy();
+  });
+
+  it("redirects an admin session to the Admin Dashboard", async () => {
+    seedSession("admin");
+    render(<App />);
+
+    expect(await screen.findByTestId("admin-dashboard")).toBeTruthy();
+    expect(screen.queryByTestId("staff-dashboard")).toBeNull();
+    expect(screen.queryByTestId("user-dashboard")).toBeNull();
+    expect(await screen.findByText("Admin Dashboard")).toBeTruthy();
+  });
+
+  it("hides unassigned-queue navigation from staff", async () => {
+    seedSession("staff");
+    render(<App />);
+    await screen.findByTestId("staff-dashboard");
+
+    fireEvent.click(screen.getByLabelText("Open navigation menu"));
+    expect(screen.queryByTestId("menu-unassigned")).toBeNull();
+    expect(screen.getByTestId("menu-queue")).toBeTruthy();
+  });
+
+  it("keeps unassigned-queue and users navigation for admin", async () => {
+    seedSession("admin");
+    render(<App />);
+    await screen.findByTestId("admin-dashboard");
+
+    fireEvent.click(screen.getByLabelText("Open navigation menu"));
+    expect(screen.getByTestId("menu-unassigned")).toBeTruthy();
+    expect(screen.getByTestId("menu-users")).toBeTruthy();
+  });
+
+  it("opens staff unassigned route as access denied", async () => {
+    seedSession("staff");
+    render(<App initialPage="unassigned" />);
+
+    expect(await screen.findByText("Access denied")).toBeTruthy();
+    expect(
+      screen.getByText("Your account does not have permission to view this page.")
+    ).toBeTruthy();
+  });
+
+  it("hides New Complaint from staff navigation menu while keeping it for user and admin", async () => {
+    seedSession("staff");
+    const { unmount } = render(<App />);
+    await screen.findByTestId("staff-dashboard");
+
+    fireEvent.click(screen.getByLabelText("Open navigation menu"));
+    expect(screen.queryByTestId("menu-compose")).toBeNull();
+    unmount();
+
+    seedSession("user");
+    const userRender = render(<App />);
+    await screen.findByTestId("user-dashboard");
+    fireEvent.click(screen.getByLabelText("Open navigation menu"));
+    expect(screen.getByTestId("menu-compose")).toBeTruthy();
+    userRender.unmount();
+
+    seedSession("admin");
+    render(<App />);
+    await screen.findByTestId("admin-dashboard");
+    fireEvent.click(screen.getByLabelText("Open navigation menu"));
+    expect(screen.getByTestId("menu-compose")).toBeTruthy();
+  });
+
+  it("prevents staff from accessing the compose page directly with access denied", async () => {
+    seedSession("staff");
+    render(<App initialPage="compose" />);
+
+    expect(await screen.findByText("Access denied")).toBeTruthy();
+    expect(
+      screen.getByText("Your account does not have permission to view this page.")
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Submit Complaint" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to Dashboard" }));
+    expect(await screen.findByTestId("staff-dashboard")).toBeTruthy();
+  });
+
+  it("allows regular user and admin to access compose page directly", async () => {
+    seedSession("user");
+    const { unmount } = render(<App initialPage="compose" />);
+    expect(
+      await screen.findByRole("button", { name: "Submit Complaint" })
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText("Example: Internet not working")).toBeTruthy();
+    unmount();
+
+    seedSession("admin");
+    render(<App initialPage="compose" />);
+    expect(
+      await screen.findByRole("button", { name: "Submit Complaint" })
+    ).toBeTruthy();
+    expect(screen.getByPlaceholderText("Example: Internet not working")).toBeTruthy();
+  });
+
+  it("hides + New Complaint button from ComplaintsPage for staff but displays it for regular users", async () => {
+    seedSession("staff");
+    const { unmount } = render(<App initialPage="complaints" />);
+    expect(await screen.findByRole("heading", { name: "My Complaints" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /\+ new complaint/i })).toBeNull();
+    unmount();
+
+    seedSession("user");
+    render(<App initialPage="complaints" />);
+    expect(await screen.findByRole("heading", { name: "My Complaints" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /\+ new complaint/i })).toBeTruthy();
+  });
+});

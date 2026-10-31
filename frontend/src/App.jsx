@@ -2,24 +2,42 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import "./App.css";
 import * as api from "./api.js";
 import { readSession, saveSession, clearSession } from "./auth.js";
-import { menuForRole, PAGE_META } from "./constants.js";
-import { buildStaffMap, isStaffRole } from "./utils.js";
+import { menuForRole, PAGE_META, dashboardMetaForRole } from "./constants.js";
+import { buildStaffMap, isStaffRole, canCreateComplaints } from "./utils.js";
 import AuthPages from "./pages/AuthPages.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { Banner } from "./components/ui.jsx";
 import { RoleBadge } from "./components/badges.jsx";
-import Dashboard from "./pages/Dashboard.jsx";
+import UserDashboard from "./pages/UserDashboard.jsx";
+import AdminDashboard from "./pages/AdminDashboard.jsx";
+import StaffDashboard from "./pages/StaffDashboard.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import ComplaintsPage from "./pages/ComplaintsPage.jsx";
 import ComplaintDetailsPage from "./pages/ComplaintDetailsPage.jsx";
 import ComplaintForm from "./components/ComplaintForm.jsx";
 import UsersPage from "./pages/UsersPage.jsx";
 
-function App() {
+function extractFragmentResetToken() {
+  if (typeof window === "undefined" || !window.location || !window.location.hash) {
+    return null;
+  }
+  const hash = window.location.hash.replace(/^#/, "");
+  const params = new URLSearchParams(hash);
+  const token = params.get("reset_token");
+  if (token) {
+    const cleanUrl = window.location.pathname + window.location.search;
+    window.history.replaceState(null, document.title, cleanUrl);
+    return token;
+  }
+  return null;
+}
+
+function App({ initialPage = "dashboard" } = {}) {
   const [session, setSession] = useState(() => readSession());
   const [authNotice, setAuthNotice] = useState("");
+  const [resetToken, setResetToken] = useState(() => extractFragmentResetToken());
 
-  const [route, setRoute] = useState({ page: "dashboard" });
+  const [route, setRoute] = useState({ page: initialPage });
   const [notice, setNotice] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
 
@@ -192,17 +210,26 @@ function App() {
 
   if (!session) {
     return (
-      <AuthPages onAuthenticated={handleAuthenticated} notice={authNotice} />
+      <AuthPages
+        onAuthenticated={handleAuthenticated}
+        notice={authNotice}
+        initialResetToken={resetToken}
+        onClearResetToken={() => setResetToken(null)}
+      />
     );
   }
 
-  const meta = PAGE_META[route.page] || PAGE_META.dashboard;
+  const meta =
+    route.page === "dashboard"
+      ? dashboardMetaForRole(session.role)
+      : PAGE_META[route.page] || PAGE_META.dashboard;
   const initialLoad = listLoading && !hasLoaded;
 
   const restricted =
-    route.page === "users"
-      ? session.role !== "admin"
-      : (route.page === "unassigned" || route.page === "queue") && !staff;
+    (route.page === "users" && session.role !== "admin") ||
+    (route.page === "unassigned" && session.role !== "admin") ||
+    (route.page === "queue" && !staff) ||
+    (route.page === "compose" && !canCreateComplaints(session));
 
   function renderContent() {
     if (restricted) {
@@ -315,9 +342,16 @@ function App() {
         );
 
       case "dashboard":
-      default:
+      default: {
+        const DashboardComponent =
+          session.role === "admin"
+            ? AdminDashboard
+            : session.role === "staff"
+              ? StaffDashboard
+              : UserDashboard;
+
         return (
-          <Dashboard
+          <DashboardComponent
             session={session}
             complaints={complaints}
             loading={initialLoad}
@@ -329,6 +363,7 @@ function App() {
             onNavigate={go}
           />
         );
+      }
     }
   }
 

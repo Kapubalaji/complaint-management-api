@@ -7,7 +7,7 @@ import {
   PRIORITIES,
   STATUS_FILTERS,
 } from "../constants.js";
-import { normalizeStatus } from "../utils.js";
+import { normalizeStatus, canCreateComplaints } from "../utils.js";
 
 function filterComplaints(items, search, status, priority, category) {
   const query = search.trim().toLowerCase();
@@ -101,7 +101,7 @@ export default function ComplaintsPage({
       ? "Unassigned Complaints"
       : mode === "queue"
         ? "Assigned to You"
-        : session.role === "user"
+        : session.role === "user" || session.role === "staff"
           ? "My Complaints"
           : "All Complaints";
 
@@ -111,6 +111,8 @@ export default function ComplaintsPage({
     if (mode === "queue") return "No complaints are assigned to you.";
     if (session.role === "user")
       return "You haven't submitted any complaints yet.";
+    if (session.role === "staff")
+      return "No complaints are assigned to you.";
     return "No complaints in the system yet.";
   })();
 
@@ -156,11 +158,11 @@ export default function ComplaintsPage({
             >
               {queueLoading ? "Refreshing..." : "Refresh"}
             </button>
-          ) : (
+          ) : canCreateComplaints(session) ? (
             <button className="primary-button" onClick={onNewComplaint}>
               + New Complaint
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -233,7 +235,11 @@ export default function ComplaintsPage({
         onView={onView}
         onEdit={onEdit}
         onDelete={onDelete}
-        onAssignToMe={mode === "unassigned" ? handleAssignToMe : undefined}
+        onAssignToMe={
+          mode === "unassigned" && session.role === "admin"
+            ? handleAssignToMe
+            : undefined
+        }
         showAssignee={session.role !== "user"}
       />
     </section>

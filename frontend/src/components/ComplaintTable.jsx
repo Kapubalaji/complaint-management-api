@@ -3,6 +3,7 @@ import { StatusBadge, PriorityBadge, CategoryBadge } from "./badges.jsx";
 import {
   canEditComplaint,
   canDeleteComplaint,
+  canAssignComplaints,
   formatDay,
   resolveUserLabel,
 } from "../utils.js";
@@ -50,7 +51,7 @@ export default function ComplaintTable({
             const deletable = canDeleteComplaint(item, session);
             const canAssignSelf =
               onAssignToMe &&
-              (session.role === "staff" || session.role === "admin") &&
+              canAssignComplaints(session) &&
               item.assigned_staff_id !== session.userId;
 
             return (

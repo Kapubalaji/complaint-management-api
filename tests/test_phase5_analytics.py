@@ -2,7 +2,7 @@ import csv
 import io
 import os
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -148,24 +148,30 @@ class TestPhase5Analytics(unittest.TestCase):
         admin_resp = self.client.get("/reports/analytics", headers=self.auth(staff))
         self.assertEqual(admin_resp.status_code, 200)
         staff_payload = admin_resp.json()
+        # Staff scope: only the one complaint assigned to them
         self.assertEqual(staff_payload["scope"], "staff")
-        self.assertEqual(staff_payload["totals"]["total"], 4)
-        self.assertEqual(staff_payload["totals"]["closed"], 1)
+        self.assertEqual(staff_payload["totals"]["total"], 1)
+        self.assertEqual(staff_payload["totals"]["resolved"], 1)
+        # Org-wide staff workload is not exposed to staff role
+        self.assertEqual(staff_payload["staff_workload"], [])
 
     def test_analytics_resolution_stats_and_trend(self):
         owner = self.create_user("trend_owner")
-        now = datetime.now(timezone.utc)
+        today = datetime.now(timezone.utc).date()
+        resolved_time = datetime.combine(today, time(18, 0), tzinfo=timezone.utc)
+        created_time = datetime.combine(today, time(12, 0), tzinfo=timezone.utc)
+        open_time = datetime.combine(today, time(13, 0), tzinfo=timezone.utc)
 
         self.add_complaint(
             owner.id,
             status="resolved",
-            created_at=now - timedelta(hours=6),
-            resolved_at=now,
+            created_at=created_time,
+            resolved_at=resolved_time,
         )
         self.add_complaint(
             owner.id,
             status="open",
-            created_at=now,
+            created_at=open_time,
         )
 
         resp = self.client.get("/reports/analytics", headers=self.auth(owner))
@@ -181,9 +187,9 @@ class TestPhase5Analytics(unittest.TestCase):
 
         trend = payload["trend"]
         self.assertEqual(len(trend), 30)
-        today = now.date().isoformat()
+        today_str = today.isoformat()
         last_point = trend[-1]
-        self.assertEqual(last_point["date"], today)
+        self.assertEqual(last_point["date"], today_str)
         self.assertEqual(last_point["created"], 2)
         self.assertEqual(last_point["resolved"], 1)
         self.assertEqual(sum(point["created"] for point in trend), 2)
@@ -293,10 +299,12 @@ class TestPhase5Analytics(unittest.TestCase):
     def test_csv_export_is_role_scoped(self):
         owner = self.create_user("scope_owner")
         other = self.create_user("scope_other")
+        staff = self.create_user("scope_staff", role="staff")
         admin = self.create_user("scope_admin", role="admin")
 
         self.add_complaint(owner.id, title="Mine")
         self.add_complaint(other.id, title="Theirs")
+        self.add_complaint(other.id, title="Assigned to staff", assigned_staff_id=staff.id)
 
         user_rows = list(
             csv.reader(
@@ -310,6 +318,19 @@ class TestPhase5Analytics(unittest.TestCase):
         self.assertEqual(len(user_rows) - 1, 1)
         self.assertIn("Mine", user_rows[1][1])
 
+        # Staff export only includes assigned complaints
+        staff_rows = list(
+            csv.reader(
+                io.StringIO(
+                    self.client.get(
+                        "/reports/export", headers=self.auth(staff)
+                    ).text
+                )
+            )
+        )
+        self.assertEqual(len(staff_rows) - 1, 1)
+        self.assertIn("Assigned to staff", staff_rows[1][1])
+
         admin_rows = list(
             csv.reader(
                 io.StringIO(
@@ -319,9 +340,9 @@ class TestPhase5Analytics(unittest.TestCase):
                 )
             )
         )
-        self.assertEqual(len(admin_rows) - 1, 2)
+        self.assertEqual(len(admin_rows) - 1, 3)
         titles = {row[1] for row in admin_rows[1:]}
-        self.assertEqual(titles, {"Mine", "Theirs"})
+        self.assertEqual(titles, {"Mine", "Theirs", "Assigned to staff"})
 
     def test_csv_export_requires_authentication(self):
         resp = self.client.get("/reports/export")

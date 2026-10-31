@@ -51,12 +51,21 @@ class TestPhase5Security(unittest.TestCase):
         self.user = self.create_user("plain_user", role="user")
         self.other_user = self.create_user("other_user", role="user")
         self.staff = self.create_user("helpdesk", role="staff")
+        self.other_staff = self.create_user("otherdesk", role="staff")
         self.admin = self.create_user("rootadmin", role="admin")
 
         self.own_complaint = self.create_complaint(self.user.id, title="My issue")
         self.foreign_complaint = self.create_complaint(
             self.other_user.id, title="Someone elses issue"
         )
+        self.assigned_complaint = self.create_complaint(
+            self.other_user.id, title="Assigned issue"
+        )
+        self.assign_complaint(self.assigned_complaint, self.staff.id)
+        self.other_staff_complaint = self.create_complaint(
+            self.other_user.id, title="Other staff issue"
+        )
+        self.assign_complaint(self.other_staff_complaint, self.other_staff.id)
 
     def tearDown(self):
         Base.metadata.drop_all(bind=test_engine)
@@ -99,6 +108,13 @@ class TestPhase5Security(unittest.TestCase):
         complaint_id = complaint.id
         session.close()
         return complaint_id
+
+    def assign_complaint(self, complaint_id: int, staff_id: int) -> None:
+        session = TestingSessionLocal()
+        complaint = session.get(Complaint, complaint_id)
+        complaint.assigned_staff_id = staff_id
+        session.commit()
+        session.close()
 
     def auth(self, user) -> dict:
         token = create_access_token(user.username, role=user.role)
@@ -216,6 +232,27 @@ class TestPhase5Security(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+    def test_staff_cannot_assign_via_complaint_update(self):
+        # Staff may edit their assigned complaint fields, but not assignment
+        resp = self.client.patch(
+            f"/complaints/{self.assigned_complaint}",
+            headers=self.auth(self.staff),
+            json={"assigned_staff_id": self.other_staff.id},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        resp = self.client.put(
+            f"/complaints/{self.assigned_complaint}",
+            headers=self.auth(self.staff),
+            json={
+                "title": "Assigned issue",
+                "description": "Updated by assigned staff",
+                "status": "open",
+                "assigned_staff_id": self.other_staff.id,
+            },
+        )
+        self.assertEqual(resp.status_code, 403)
+
     # --- Data isolation ---
 
     def test_user_cannot_read_or_modify_foreign_complaint(self):
@@ -261,6 +298,12 @@ class TestPhase5Security(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 404)
 
+        # Even assigned staff cannot delete complaints they do not own
+        resp = self.client.delete(
+            f"/complaints/{self.assigned_complaint}", headers=self.auth(self.staff)
+        )
+        self.assertEqual(resp.status_code, 404)
+
     def test_owner_and_admin_can_delete_their_complaints(self):
         resp = self.client.delete(
             f"/complaints/{self.own_complaint}", headers=self.auth(self.user)
@@ -282,37 +325,88 @@ class TestPhase5Security(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 403)
 
+        # Staff cannot transition unassigned or other-staff complaints
         resp = self.client.patch(
-            f"/complaints/{self.own_complaint}/status",
+            f"/complaints/{self.foreign_complaint}/status",
+            headers=self.auth(self.staff),
+            json={"status": "in_progress"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.patch(
+            f"/complaints/{self.other_staff_complaint}/status",
+            headers=self.auth(self.staff),
+            json={"status": "in_progress"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        # Assigned staff can transition their complaint
+        resp = self.client.patch(
+            f"/complaints/{self.assigned_complaint}/status",
             headers=self.auth(self.staff),
             json={"status": "in_progress"},
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["status"], "in_progress")
 
-    def test_assign_requires_staff_target(self):
+        # Admin can transition any complaint
         resp = self.client.patch(
-            f"/complaints/{self.foreign_complaint}/assign",
-            headers=self.auth(self.staff),
-            json={"assigned_staff_id": self.other_user.id},
+            f"/complaints/{self.foreign_complaint}/status",
+            headers=self.auth(self.admin),
+            json={"status": "in_progress"},
         )
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status_code, 200)
 
+    def test_assign_requires_admin(self):
+        # Staff cannot assign at all
         resp = self.client.patch(
             f"/complaints/{self.foreign_complaint}/assign",
             headers=self.auth(self.staff),
             json={"assigned_staff_id": self.staff.id},
         )
+        self.assertEqual(resp.status_code, 403)
+
+        resp = self.client.patch(
+            f"/complaints/{self.foreign_complaint}/assign",
+            headers=self.auth(self.staff),
+            json={"assigned_staff_id": self.other_user.id},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        # User cannot assign
+        resp = self.client.patch(
+            f"/complaints/{self.own_complaint}/assign",
+            headers=self.auth(self.user),
+            json={"assigned_staff_id": self.staff.id},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        # Admin cannot assign to a non-staff target
+        resp = self.client.patch(
+            f"/complaints/{self.foreign_complaint}/assign",
+            headers=self.auth(self.admin),
+            json={"assigned_staff_id": self.other_user.id},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+        # Admin can assign to staff
+        resp = self.client.patch(
+            f"/complaints/{self.foreign_complaint}/assign",
+            headers=self.auth(self.admin),
+            json={"assigned_staff_id": self.other_staff.id},
+        )
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["assigned_staff_id"], self.staff.id)
+        self.assertEqual(resp.json()["assigned_staff_id"], self.other_staff.id)
 
     # --- Internal comments ---
 
     def test_internal_comments_hidden_from_standard_users(self):
         headers_staff = self.auth(self.staff)
+        # Use the complaint already assigned to staff in setUp
+        assigned_id = self.assigned_complaint
 
         resp = self.client.post(
-            f"/complaints/{self.foreign_complaint}/comments",
+            f"/complaints/{assigned_id}/comments",
             headers=headers_staff,
             json={"comment": "internal note", "is_internal": True},
         )
@@ -322,18 +416,45 @@ class TestPhase5Security(unittest.TestCase):
         # Owner of the complaint sees only public comments.
         owner_headers = self.auth(self.other_user)
         resp = self.client.get(
-            f"/complaints/{self.foreign_complaint}/comments", headers=owner_headers
+            f"/complaints/{assigned_id}/comments", headers=owner_headers
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), [])
 
         # Staff still see the internal note.
         resp = self.client.get(
-            f"/complaints/{self.foreign_complaint}/comments", headers=headers_staff
+            f"/complaints/{assigned_id}/comments", headers=headers_staff
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()), 1)
         self.assertTrue(resp.json()[0]["is_internal"])
+
+    def test_staff_cannot_comment_on_unassigned_or_other_staff_complaints(self):
+        resp = self.client.post(
+            f"/complaints/{self.foreign_complaint}/comments",
+            headers=self.auth(self.staff),
+            json={"comment": "should fail"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.post(
+            f"/complaints/{self.other_staff_complaint}/comments",
+            headers=self.auth(self.staff),
+            json={"comment": "should fail"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.get(
+            f"/complaints/{self.foreign_complaint}/comments",
+            headers=self.auth(self.staff),
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.get(
+            f"/complaints/{self.other_staff_complaint}/comments",
+            headers=self.auth(self.staff),
+        )
+        self.assertEqual(resp.status_code, 404)
 
     def test_standard_users_cannot_create_internal_comments(self):
         resp = self.client.post(
@@ -381,16 +502,130 @@ class TestPhase5Security(unittest.TestCase):
         self.assertEqual(resp.json()["scope"], "user")
         self.assertEqual(resp.json()["totals"]["total"], 1)
 
-        # Staff/admin analytics cover everything.
+        # Staff analytics cover only assigned complaints (none unassigned).
         resp = self.client.get("/reports/analytics", headers=self.auth(self.staff))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["scope"], "staff")
-        self.assertEqual(resp.json()["totals"]["total"], 2)
+        payload = resp.json()
+        self.assertEqual(payload["scope"], "staff")
+        self.assertEqual(payload["totals"]["total"], 1)  # only assigned_complaint
+        # Staff must not receive org-wide staff workload breakdown
+        self.assertEqual(payload["staff_workload"], [])
+        self.assertIsNotNone(payload["my_workload"])
+        self.assertEqual(payload["my_workload"]["total_count"], 1)
 
+        # Admin analytics cover everything.
         resp = self.client.get("/reports/analytics", headers=self.auth(self.admin))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["scope"], "admin")
-        self.assertEqual(resp.json()["totals"]["total"], 2)
+        payload = resp.json()
+        self.assertEqual(payload["scope"], "admin")
+        self.assertEqual(payload["totals"]["total"], 4)
+        self.assertTrue(len(payload["staff_workload"]) > 0)
+
+    def test_staff_list_and_detail_scoped_to_assignments(self):
+        # Staff list only shows their assigned complaint
+        resp = self.client.get("/complaints", headers=self.auth(self.staff))
+        self.assertEqual(resp.status_code, 200)
+        ids = {item["id"] for item in resp.json()}
+        self.assertEqual(ids, {self.assigned_complaint})
+
+        # Detail access by ID for unassigned / other-staff
+        resp = self.client.get(
+            f"/complaints/{self.foreign_complaint}", headers=self.auth(self.staff)
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.get(
+            f"/complaints/{self.other_staff_complaint}", headers=self.auth(self.staff)
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        # Assigned detail is visible
+        resp = self.client.get(
+            f"/complaints/{self.assigned_complaint}", headers=self.auth(self.staff)
+        )
+        self.assertEqual(resp.status_code, 200)
+
+        # Admin can see all via list
+        resp = self.client.get("/complaints", headers=self.auth(self.admin))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(resp.json()), 4)
+
+    def test_staff_cannot_modify_unassigned_complaint(self):
+        headers = self.auth(self.staff)
+
+        resp = self.client.patch(
+            f"/complaints/{self.foreign_complaint}",
+            headers=headers,
+            json={"title": "hijacked"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.put(
+            f"/complaints/{self.foreign_complaint}",
+            headers=headers,
+            json={
+                "title": "hijacked",
+                "description": "x",
+                "status": "open",
+            },
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_staff_unassigned_queue_is_admin_only(self):
+        resp = self.client.get(
+            "/complaints/unassigned", headers=self.auth(self.staff)
+        )
+        self.assertEqual(resp.status_code, 403)
+
+        resp = self.client.get(
+            "/complaints/unassigned", headers=self.auth(self.admin)
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_complaint_creation_permissions(self):
+        # Admin can create complaints
+        admin_resp = self.client.post(
+            "/complaints",
+            headers=self.auth(self.admin),
+            json={"title": "Admin Complaint", "description": "Created by admin"},
+        )
+        self.assertEqual(admin_resp.status_code, 201)
+        self.assertEqual(admin_resp.json()["user_id"], self.admin.id)
+
+        # Regular User can create complaints
+        user_resp = self.client.post(
+            "/complaints",
+            headers=self.auth(self.user),
+            json={"title": "User Complaint", "description": "Created by user"},
+        )
+        self.assertEqual(user_resp.status_code, 201)
+        self.assertEqual(user_resp.json()["user_id"], self.user.id)
+
+        # Staff receives 403 Forbidden
+        with TestingSessionLocal() as session:
+            count_before = session.query(Complaint).count()
+
+        staff_resp = self.client.post(
+            "/complaints",
+            headers=self.auth(self.staff),
+            json={"title": "Staff Complaint", "description": "Should be rejected"},
+        )
+        self.assertEqual(staff_resp.status_code, 403)
+        self.assertEqual(
+            staff_resp.json().get("detail"),
+            "Permission denied: insufficient privileges",
+        )
+
+        # Rejected Staff requests do not create database records
+        with TestingSessionLocal() as session:
+            count_after = session.query(Complaint).count()
+            self.assertEqual(count_before, count_after)
+            staff_record = (
+                session.query(Complaint)
+                .filter(Complaint.title == "Staff Complaint")
+                .first()
+            )
+            self.assertIsNone(staff_record)
 
 
 if __name__ == "__main__":

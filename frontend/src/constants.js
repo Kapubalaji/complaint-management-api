@@ -35,13 +35,12 @@ export function menuForRole(role) {
   }
 
   if (role === "staff") {
+    // Staff UI: assigned work only — no unassigned queue, no assignment nav, no create
     return [
       dashboard,
       analytics,
-      { key: "complaints", label: "All Complaints", icon: "\u25A4" },
-      { key: "unassigned", label: "Unassigned", icon: "\u25CB" },
       { key: "queue", label: "My Queue", icon: "\u25D0" },
-      { key: "compose", label: "New Complaint", icon: "+" },
+      { key: "complaints", label: "My Complaints", icon: "\u25A4" },
       { key: "logout", label: "Log out", icon: "\u21AA" },
     ];
   }
@@ -53,6 +52,25 @@ export function menuForRole(role) {
     { key: "compose", label: "New Complaint", icon: "+" },
     { key: "logout", label: "Log out", icon: "\u21AA" },
   ];
+}
+
+export function dashboardMetaForRole(role) {
+  if (role === "admin") {
+    return {
+      title: "Admin Dashboard",
+      subtitle: "Organization-wide complaint operations and assignments.",
+    };
+  }
+  if (role === "staff") {
+    return {
+      title: "Staff Dashboard",
+      subtitle: "Your assigned complaints and triage workload.",
+    };
+  }
+  return {
+    title: "User Dashboard",
+    subtitle: "Manage and track your service requests.",
+  };
 }
 
 export const PAGE_META = {

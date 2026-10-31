@@ -16,6 +16,7 @@ import {
   canEditComplaint,
   canDeleteComplaint,
   canManageWorkflow,
+  canAssignComplaints,
   statusLabel,
 } from "../utils.js";
 
@@ -47,6 +48,7 @@ export default function ComplaintDetailsPage({
   const [reanalyzing, setReanalyzing] = useState(false);
 
   const staff = canManageWorkflow(session);
+  const canAssign = canAssignComplaints(session);
 
   useEffect(() => {
     let cancelled = false;
@@ -304,86 +306,86 @@ export default function ComplaintDetailsPage({
             </section>
 
             {staff && (
-              <>
-                <section className="detail-card">
-                  <h3>Update Status</h3>
-                  <form className="stacked-form" onSubmit={handleStatusUpdate}>
-                    <label htmlFor="detail-status">Status</label>
-                    <select
-                      id="detail-status"
-                      value={statusValue}
-                      onChange={(event) => setStatusValue(event.target.value)}
-                    >
-                      {STATUSES.map((option) => (
-                        <option key={option} value={option}>
-                          {statusLabel(option)}
-                        </option>
-                      ))}
-                    </select>
+              <section className="detail-card">
+                <h3>Update Status</h3>
+                <form className="stacked-form" onSubmit={handleStatusUpdate}>
+                  <label htmlFor="detail-status">Status</label>
+                  <select
+                    id="detail-status"
+                    value={statusValue}
+                    onChange={(event) => setStatusValue(event.target.value)}
+                  >
+                    {STATUSES.map((option) => (
+                      <option key={option} value={option}>
+                        {statusLabel(option)}
+                      </option>
+                    ))}
+                  </select>
 
-                    <label htmlFor="resolution-note">
-                      Resolution note <span className="optional">(optional)</span>
-                    </label>
-                    <textarea
-                      id="resolution-note"
-                      rows="3"
-                      value={resolutionNote}
-                      onChange={(event) => setResolutionNote(event.target.value)}
-                      placeholder="What was done to resolve this?"
-                    />
+                  <label htmlFor="resolution-note">
+                    Resolution note <span className="optional">(optional)</span>
+                  </label>
+                  <textarea
+                    id="resolution-note"
+                    rows="3"
+                    value={resolutionNote}
+                    onChange={(event) => setResolutionNote(event.target.value)}
+                    placeholder="What was done to resolve this?"
+                  />
 
-                    <Banner
-                      type="error"
-                      message={statusError}
-                      onClose={() => setStatusError("")}
-                    />
+                  <Banner
+                    type="error"
+                    message={statusError}
+                    onClose={() => setStatusError("")}
+                  />
 
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={statusBusy}
-                    >
-                      {statusBusy ? "Updating..." : "Update Status"}
-                    </button>
-                  </form>
-                </section>
-
-                <section className="detail-card">
-                  <h3>Assignment</h3>
-                  <form className="stacked-form" onSubmit={handleAssign}>
-                    <label htmlFor="assign-select">Assign to</label>
-                    <select
-                      id="assign-select"
-                      value={assignee}
-                      onChange={(event) => setAssignee(event.target.value)}
-                    >
-                      <option value="">Unassigned</option>
-                      {staffOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    <Banner
-                      type="error"
-                      message={assignError}
-                      onClose={() => setAssignError("")}
-                    />
-
-                    <button
-                      className="primary-button"
-                      type="submit"
-                      disabled={assignBusy || !assignee}
-                    >
-                      {assignBusy ? "Assigning..." : "Save Assignment"}
-                    </button>
-                  </form>
-                </section>
-              </>
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={statusBusy}
+                  >
+                    {statusBusy ? "Updating..." : "Update Status"}
+                  </button>
+                </form>
+              </section>
             )}
 
-            {!staff && (
+            {canAssign && (
+              <section className="detail-card" data-testid="assignment-panel">
+                <h3>Assignment</h3>
+                <form className="stacked-form" onSubmit={handleAssign}>
+                  <label htmlFor="assign-select">Assign to</label>
+                  <select
+                    id="assign-select"
+                    value={assignee}
+                    onChange={(event) => setAssignee(event.target.value)}
+                  >
+                    <option value="">Unassigned</option>
+                    {staffOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <Banner
+                    type="error"
+                    message={assignError}
+                    onClose={() => setAssignError("")}
+                  />
+
+                  <button
+                    className="primary-button"
+                    type="submit"
+                    disabled={assignBusy || !assignee}
+                  >
+                    {assignBusy ? "Assigning..." : "Save Assignment"}
+                  </button>
+                </form>
+              </section>
+            )}
+
+            {!staff && !canAssign && (
               <section className="detail-card info-card">
                 <h3>Need a status change?</h3>
                 <p>

@@ -2,17 +2,22 @@ import { useState } from "react";
 import * as api from "../api.js";
 import { Banner } from "../components/ui.jsx";
 
-export default function AuthPages({ onAuthenticated, notice }) {
-  const [mode, setMode] = useState("login");
+export default function AuthPages({
+  onAuthenticated,
+  notice = "",
+  initialMode = "login",
+  initialResetToken = null,
+  onClearResetToken,
+}) {
+  const [mode, setMode] = useState(() => (initialResetToken ? "reset" : initialMode));
+  const [resetToken, setResetToken] = useState(() => initialResetToken);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-
-  const [resetToken, setResetToken] = useState("");
-  const [newPassword, setNewPassword] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -25,6 +30,12 @@ export default function AuthPages({ onAuthenticated, notice }) {
     setPassword("");
     setConfirmPassword("");
     setNewPassword("");
+  }
+
+  function cancelReset() {
+    setResetToken(null);
+    if (onClearResetToken) onClearResetToken();
+    switchMode("login");
   }
 
   async function handleLogin(event) {
@@ -87,18 +98,12 @@ export default function AuthPages({ onAuthenticated, notice }) {
         username.trim(),
         email.trim() || undefined
       );
-
-      if (data.reset_token) {
-        setResetToken(data.reset_token);
-        setMode("reset");
-        setSuccess(
-          "Reset token generated. No email service is configured on this server, so copy the token below and use it in the next step."
-        );
-      } else {
-        setSuccess(data.message || "If an account matches those details, a reset token has been generated.");
-      }
+      setSuccess(
+        data.message ||
+          "If an account matches those details, password reset instructions have been prepared."
+      );
     } catch (err) {
-      setError(err.message || "Unable to request a reset token.");
+      setError(err.message || "Unable to request a password reset.");
     } finally {
       setLoading(false);
     }
@@ -109,22 +114,40 @@ export default function AuthPages({ onAuthenticated, notice }) {
     setError("");
     setSuccess("");
 
+    if (!resetToken) {
+      setError("No reset token available. Please request a new reset link.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     if (newPassword.length < 8) {
-      setError("New password must contain at least 8 characters.");
+      setError("Password must contain at least 8 characters.");
       return;
     }
 
     setLoading(true);
 
     try {
-      await api.resetPassword(resetToken.trim(), newPassword);
-      setSuccess("Password reset successfully. Please sign in with your new password.");
-      setMode("login");
+      const data = await api.resetPassword(resetToken, newPassword);
+      setSuccess(
+        data.message ||
+          "Password has been successfully reset. You may now sign in."
+      );
+      setResetToken(null);
+      if (onClearResetToken) onClearResetToken();
       setPassword("");
+      setConfirmPassword("");
       setNewPassword("");
-      setResetToken("");
+      setMode("login");
     } catch (err) {
-      setError(err.message || "Password reset failed.");
+      setError(
+        err.message ||
+          "Password reset failed. The token may be expired or already used."
+      );
     } finally {
       setLoading(false);
     }
@@ -133,11 +156,17 @@ export default function AuthPages({ onAuthenticated, notice }) {
   const headings = {
     login: ["Welcome Back!", "Sign in to manage your complaints."],
     register: ["Create Account", "Register to start managing your complaints."],
-    forgot: ["Forgot Password", "Request a reset token for your account."],
-    reset: ["Reset Password", "Set a new password using your reset token."],
+    forgot: [
+      "Forgot Password",
+      "Request password reset instructions for your account.",
+    ],
+    reset: [
+      "Reset Password",
+      "Enter your new password below.",
+    ],
   };
 
-  const [heading, subheading] = headings[mode];
+  const [heading, subheading] = headings[mode] || headings.login;
 
   return (
     <main className="login-page">
@@ -238,32 +267,24 @@ export default function AuthPages({ onAuthenticated, notice }) {
           </>
         )}
 
-        {mode === "forgot" && (
-          <p className="auth-note">
-            The server issues a reset token directly. Because no email delivery
-            is configured, the token is shown to you in the next step.
-          </p>
-        )}
-
         {mode === "reset" && (
           <>
-            <label htmlFor="reset-token">Reset token</label>
-            <textarea
-              id="reset-token"
-              rows="3"
-              className="token-input"
-              value={resetToken}
-              onChange={(event) => setResetToken(event.target.value)}
-              placeholder="Paste the token issued by the server"
-              required
-            />
-
-            <label htmlFor="reset-password">New password</label>
+            <label htmlFor="auth-new-password">New password</label>
             <input
-              id="reset-password"
+              id="auth-new-password"
               type="password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
+              autoComplete="new-password"
+              required
+            />
+
+            <label htmlFor="auth-confirm-password">Confirm new password</label>
+            <input
+              id="auth-confirm-password"
+              type="password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
               autoComplete="new-password"
               required
             />
@@ -278,7 +299,7 @@ export default function AuthPages({ onAuthenticated, notice }) {
               : mode === "register"
                 ? "Create Account"
                 : mode === "forgot"
-                  ? "Request Reset Token"
+                  ? "Request Password Reset"
                   : "Reset Password"}
         </button>
 
@@ -317,13 +338,26 @@ export default function AuthPages({ onAuthenticated, notice }) {
             </>
           )}
 
-          {(mode === "forgot" || mode === "reset") && (
+          {mode === "forgot" && (
             <>
               Remembered your password?{" "}
               <button
                 type="button"
                 className="text-button"
                 onClick={() => switchMode("login")}
+              >
+                Sign In
+              </button>
+            </>
+          )}
+
+          {mode === "reset" && (
+            <>
+              Remembered your password?{" "}
+              <button
+                type="button"
+                className="text-button"
+                onClick={cancelReset}
               >
                 Sign In
               </button>

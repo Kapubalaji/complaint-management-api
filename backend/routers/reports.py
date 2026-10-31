@@ -64,20 +64,33 @@ def _bump(counter: dict, key, fallback: str) -> None:
     counter[label] = counter.get(label, 0) + 1
 
 
+def _apply_role_scope(query, current_user: User):
+    """Scope complaint rows by role.
+
+    - admin: all organization complaints
+    - staff: only complaints assigned to them
+    - user: only their own complaints
+    """
+    if current_user.role == "admin":
+        return query
+    if current_user.role == "staff":
+        return query.filter(Complaint.assigned_staff_id == current_user.id)
+    return query.filter(Complaint.user_id == current_user.id)
+
+
 @router.get("/reports/analytics", response_model=AnalyticsResponse)
 def get_analytics(current_user: User = Depends(get_current_user)):
     """Role-scoped analytics computed from live database rows.
 
     - user: aggregates only the caller's own complaints.
-    - staff/admin: aggregates all complaints, plus workload breakdowns.
+    - staff: aggregates only complaints assigned to the caller.
+    - admin: aggregates all complaints, plus org-wide workload breakdowns.
     """
+    is_admin = current_user.role == "admin"
     is_staff = current_user.role in ("staff", "admin")
 
     with Session(engine) as session:
-        query = session.query(Complaint)
-        if not is_staff:
-            query = query.filter(Complaint.user_id == current_user.id)
-        rows = query.all()
+        rows = _apply_role_scope(session.query(Complaint), current_user).all()
 
         totals: dict[str, int] = {"total": len(rows)}
         for status_key in STATUS_ORDER:
@@ -156,6 +169,8 @@ def get_analytics(current_user: User = Depends(get_current_user)):
                 resolved_count=sum(1 for row in mine if row.resolved_at is not None),
             )
 
+        # Org-wide staff workload is admin-only (staff reports stay assignment-scoped).
+        if is_admin:
             assigned_by_staff: dict[int, list] = {}
             for row in rows:
                 if row.assigned_staff_id is not None:
@@ -212,7 +227,8 @@ def export_complaints_csv(
     """Role-scoped CSV report of complaint records from the live database.
 
     - user: exports only the caller's own complaints.
-    - staff/admin: exports every complaint.
+    - staff: exports only complaints assigned to the caller.
+    - admin: exports every complaint.
     - optional start_date/end_date (YYYY-MM-DD) filter by created_at, inclusive.
     """
     start = _parse_export_date(start_date, "start_date")
@@ -223,12 +239,8 @@ def export_complaints_csv(
             detail="start_date must be on or before end_date.",
         )
 
-    is_staff = current_user.role in ("staff", "admin")
-
     with Session(engine) as session:
-        query = session.query(Complaint)
-        if not is_staff:
-            query = query.filter(Complaint.user_id == current_user.id)
+        query = _apply_role_scope(session.query(Complaint), current_user)
         if start is not None:
             query = query.filter(Complaint.created_at >= _start_of_day(start))
         if end is not None:
