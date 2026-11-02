@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as api from "../api.js";
 import { Banner } from "../components/ui.jsx";
+import { ShieldLogo, IconEye, IconEyeOff, IconCheckCircle } from "../components/Icons.jsx";
 
 export default function AuthPages({
   onAuthenticated,
@@ -18,6 +19,9 @@ export default function AuthPages({
   const [newPassword, setNewPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -154,11 +158,11 @@ export default function AuthPages({
   }
 
   const headings = {
-    login: ["Welcome Back!", "Sign in to manage your complaints."],
-    register: ["Create Account", "Register to start managing your complaints."],
+    login: ["Welcome Back!", "Login to continue"],
+    register: ["Create Account", "Register to get started"],
     forgot: [
       "Forgot Password",
-      "Request password reset instructions for your account.",
+      "Enter your email to reset password",
     ],
     reset: [
       "Reset Password",
@@ -170,151 +174,158 @@ export default function AuthPages({
 
   return (
     <main className="login-page">
-      <form
-        className="login-card"
-        onSubmit={
-          mode === "login"
-            ? handleLogin
-            : mode === "register"
-              ? handleRegister
-              : mode === "forgot"
-                ? handleForgot
-                : handleReset
-        }
-      >
-        <h1>ResolveIT</h1>
-        <h2>{heading}</h2>
-        <p>{subheading}</p>
+      <div className="auth-wrapper">
+        {/* Left Side Hero Banner (Desktop) */}
+        <aside className="auth-hero" aria-hidden="true">
+          <div className="auth-hero-badge">
+            <ShieldLogo size={28} />
+            <span>ResolveIT CMS</span>
+          </div>
+          <h2>Complaint Management System</h2>
+          <p className="auth-hero-desc">
+            A complete solution to raise, track, and resolve complaints efficiently.
+          </p>
 
-        <Banner type="error" message={error} onClose={() => setError("")} />
-        <Banner type="success" message={success} onClose={() => setSuccess("")} />
-        <Banner type="error" message={notice} />
+          <ul className="auth-features">
+            <li>
+              <IconCheckCircle className="check-icon" size={20} />
+              <span>Easy Complaint Submission</span>
+            </li>
+            <li>
+              <IconCheckCircle className="check-icon" size={20} />
+              <span>Real-time Tracking</span>
+            </li>
+            <li>
+              <IconCheckCircle className="check-icon" size={20} />
+              <span>Smart Assignment</span>
+            </li>
+            <li>
+              <IconCheckCircle className="check-icon" size={20} />
+              <span>Reports & Analytics</span>
+            </li>
+            <li>
+              <IconCheckCircle className="check-icon" size={20} />
+              <span>Role-based Access</span>
+            </li>
+          </ul>
+        </aside>
 
-        {(mode === "login" || mode === "register" || mode === "forgot") && (
-          <>
-            <label htmlFor="auth-username">Username</label>
-            <input
-              id="auth-username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="username"
-              required
-            />
-          </>
-        )}
-
-        {mode === "register" && (
-          <>
-            <label htmlFor="auth-full-name">Full name <span className="optional">(optional)</span></label>
-            <input
-              id="auth-full-name"
-              value={fullName}
-              onChange={(event) => setFullName(event.target.value)}
-              autoComplete="name"
-            />
-
-            <label htmlFor="auth-email">Email <span className="optional">(optional)</span></label>
-            <input
-              id="auth-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-          </>
-        )}
-
-        {mode === "forgot" && (
-          <>
-            <label htmlFor="auth-email">Email <span className="optional">(optional)</span></label>
-            <input
-              id="auth-email"
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-          </>
-        )}
-
-        {(mode === "login" || mode === "register") && (
-          <>
-            <label htmlFor="auth-password">Password</label>
-            <input
-              id="auth-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete={
-                mode === "register" ? "new-password" : "current-password"
-              }
-              required
-            />
-          </>
-        )}
-
-        {mode === "register" && (
-          <>
-            <label htmlFor="auth-confirm">Confirm password</label>
-            <input
-              id="auth-confirm"
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-            />
-          </>
-        )}
-
-        {mode === "reset" && (
-          <>
-            <label htmlFor="auth-new-password">New password</label>
-            <input
-              id="auth-new-password"
-              type="password"
-              value={newPassword}
-              onChange={(event) => setNewPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-            />
-
-            <label htmlFor="auth-confirm-password">Confirm new password</label>
-            <input
-              id="auth-confirm-password"
-              type="password"
-              value={confirmPassword}
-              onChange={(event) => setConfirmPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-            />
-          </>
-        )}
-
-        <button type="submit" disabled={loading}>
-          {loading
-            ? "Please wait..."
-            : mode === "login"
-              ? "Sign In"
+        {/* Right Side Form Card */}
+        <form
+          className="login-card"
+          onSubmit={
+            mode === "login"
+              ? handleLogin
               : mode === "register"
-                ? "Create Account"
+                ? handleRegister
                 : mode === "forgot"
-                  ? "Request Password Reset"
-                  : "Reset Password"}
-        </button>
+                  ? handleForgot
+                  : handleReset
+          }
+        >
+          <div className="auth-card-header">
+            <div className="auth-shield-wrap">
+              <ShieldLogo size={48} />
+            </div>
+            <h1>ResolveIT CMS</h1>
+            <h2>{heading}</h2>
+            <p>{subheading}</p>
+          </div>
 
-        <p className="auth-switch">
-          {mode === "login" && (
+          <Banner type="error" message={error} onClose={() => setError("")} />
+          <Banner type="success" message={success} onClose={() => setSuccess("")} />
+          <Banner type="error" message={notice} />
+
+          {(mode === "login" || mode === "register" || mode === "forgot") && (
+            <div className="form-group">
+              <label htmlFor="auth-username">Username</label>
+              <input
+                id="auth-username"
+                value={username}
+                placeholder={mode === "login" ? "Enter your username" : "Choose a username"}
+                onChange={(event) => setUsername(event.target.value)}
+                autoComplete="username"
+                required
+              />
+            </div>
+          )}
+
+          {mode === "register" && (
             <>
-              Don&apos;t have an account?{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => switchMode("register")}
-              >
-                Register
-              </button>
-              <br />
+              <div className="form-group">
+                <label htmlFor="auth-full-name">
+                  Full name <span className="optional">(optional)</span>
+                </label>
+                <input
+                  id="auth-full-name"
+                  placeholder="Enter your full name"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  autoComplete="name"
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="auth-email">
+                  Email <span className="optional">(optional)</span>
+                </label>
+                <input
+                  id="auth-email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                />
+              </div>
+            </>
+          )}
+
+          {mode === "forgot" && (
+            <div className="form-group">
+              <label htmlFor="auth-email">
+                Email <span className="optional">(optional)</span>
+              </label>
+              <input
+                id="auth-email"
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+              />
+            </div>
+          )}
+
+          {(mode === "login" || mode === "register") && (
+            <div className="form-group">
+              <label htmlFor="auth-password">Password</label>
+              <div className="password-input-wrap">
+                <input
+                  id="auth-password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder={mode === "login" ? "Enter password" : "Create password"}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete={
+                    mode === "register" ? "new-password" : "current-password"
+                  }
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === "login" && (
+            <div className="auth-options-row">
               <button
                 type="button"
                 className="text-button subtle"
@@ -322,49 +333,151 @@ export default function AuthPages({
               >
                 Forgot password?
               </button>
-            </>
+            </div>
           )}
 
           {mode === "register" && (
-            <>
-              Already have an account?{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => switchMode("login")}
-              >
-                Sign In
-              </button>
-            </>
-          )}
-
-          {mode === "forgot" && (
-            <>
-              Remembered your password?{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => switchMode("login")}
-              >
-                Sign In
-              </button>
-            </>
+            <div className="form-group">
+              <label htmlFor="auth-confirm">Confirm password</label>
+              <div className="password-input-wrap">
+                <input
+                  id="auth-confirm"
+                  type={showConfirmPassword ? "text" : "password"}
+                  placeholder="Confirm password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  autoComplete="new-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="password-toggle-btn"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  {showConfirmPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                </button>
+              </div>
+            </div>
           )}
 
           {mode === "reset" && (
             <>
-              Remembered your password?{" "}
-              <button
-                type="button"
-                className="text-button"
-                onClick={cancelReset}
-              >
-                Sign In
-              </button>
+              <div className="form-group">
+                <label htmlFor="auth-new-password">New password</label>
+                <div className="password-input-wrap">
+                  <input
+                    id="auth-new-password"
+                    type={showPassword ? "text" : "password"}
+                    placeholder="Enter new password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="auth-confirm-password">Confirm new password</label>
+                <div className="password-input-wrap">
+                  <input
+                    id="auth-confirm-password"
+                    type={showConfirmPassword ? "text" : "password"}
+                    placeholder="Confirm new password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle-btn"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                  >
+                    {showConfirmPassword ? <IconEyeOff size={18} /> : <IconEye size={18} />}
+                  </button>
+                </div>
+              </div>
             </>
           )}
-        </p>
-      </form>
+
+          <button type="submit" className="auth-submit-btn" disabled={loading}>
+            {loading
+              ? "Please wait..."
+              : mode === "login"
+                ? "Login"
+                : mode === "register"
+                  ? "Register"
+                  : mode === "forgot"
+                    ? "Request Password Reset"
+                    : "Reset Password"}
+          </button>
+
+          <div className="auth-switch">
+            {mode === "login" && (
+              <p>
+                Don&apos;t have an account?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => switchMode("register")}
+                >
+                  Register
+                </button>
+              </p>
+            )}
+
+            {mode === "register" && (
+              <p>
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => switchMode("login")}
+                >
+                  Sign In
+                </button>
+              </p>
+            )}
+
+            {mode === "forgot" && (
+              <p>
+                Remembered your password?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={() => switchMode("login")}
+                >
+                  Back to Login
+                </button>
+              </p>
+            )}
+
+            {mode === "reset" && (
+              <p>
+                Remembered your password?{" "}
+                <button
+                  type="button"
+                  className="text-button"
+                  onClick={cancelReset}
+                >
+                  Sign In
+                </button>
+              </p>
+            )}
+          </div>
+        </form>
+      </div>
     </main>
   );
 }

@@ -2,6 +2,11 @@ import StatCard from "../components/StatCard.jsx";
 import ComplaintTable from "../components/ComplaintTable.jsx";
 import { Spinner } from "../components/ui.jsx";
 import { normalizeStatus } from "../utils.js";
+import {
+  IconComplaints,
+  IconInbox,
+  IconCheckCircle,
+} from "../components/Icons.jsx";
 
 export default function StaffDashboard({
   session,
@@ -14,12 +19,8 @@ export default function StaffDashboard({
   onDelete,
   onNavigate,
 }) {
-  // Staff GET /complaints returns only complaints assigned to this staff member
   const assigned = complaints;
   const total = assigned.length;
-  const open = assigned.filter(
-    (item) => normalizeStatus(item.status) === "open"
-  ).length;
   const inProgress = assigned.filter(
     (item) => normalizeStatus(item.status) === "in_progress"
   ).length;
@@ -28,10 +29,24 @@ export default function StaffDashboard({
   ).length;
 
   const cards = [
-    { label: "Assigned to Me", value: total },
-    { label: "Open", value: open },
-    { label: "In Progress", value: inProgress },
-    { label: "Resolved", value: resolved },
+    {
+      label: "Assigned to Me",
+      value: total,
+      accent: "total",
+      icon: <IconComplaints size={24} />,
+    },
+    {
+      label: "In Progress",
+      value: inProgress,
+      accent: "progress",
+      icon: <IconInbox size={24} />,
+    },
+    {
+      label: "Resolved",
+      value: resolved,
+      accent: "resolved",
+      icon: <IconCheckCircle size={24} />,
+    },
   ];
 
   const recent = assigned.slice(0, 5);
@@ -43,16 +58,22 @@ export default function StaffDashboard({
         <p>Here&apos;s your triage overview and current assigned workload.</p>
       </section>
 
-      <section className="stats">
+      <section className="stats stats-three-cols">
         {cards.map((card) => (
-          <StatCard key={card.label} label={card.label} value={card.value} />
+          <StatCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            accent={card.accent}
+            icon={card.icon}
+          />
         ))}
       </section>
 
       <section className="complaints-panel">
         <div className="panel-heading">
           <div>
-            <h2>Recent Assigned Complaints</h2>
+            <h2>My Assignments</h2>
             <p>Complaints currently assigned to you</p>
           </div>
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import * as api from "../api.js";
 import { Spinner, EmptyState, Banner } from "./ui.jsx";
 import { formatDate, resolveUserLabel, isStaffRole } from "../utils.js";
+import { IconSend } from "./Icons.jsx";
 
 export default function CommentThread({
   token,
@@ -109,6 +110,9 @@ export default function CommentThread({
               }
             >
               <div className="comment-meta">
+                <span className="comment-author-avatar">
+                  {resolveUserLabel(comment.user_id, session, staffMap).charAt(0).toUpperCase()}
+                </span>
                 <strong>
                   {resolveUserLabel(comment.user_id, session, staffMap)}
                 </strong>
@@ -125,32 +129,40 @@ export default function CommentThread({
         </ul>
       )}
 
-      <form className="comment-form" onSubmit={handlePost}>
-        <label htmlFor="comment-text">Add a comment</label>
-        <textarea
-          id="comment-text"
-          rows="3"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          placeholder="Write your update..."
-        />
+      <form className="comment-form-modern" onSubmit={handlePost}>
+        <label htmlFor="comment-text" className="visually-hidden">
+          Add Comment
+        </label>
+        <div className="comment-input-row">
+          <textarea
+            id="comment-text"
+            rows="2"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Write a comment..."
+          />
+          <button
+            className="primary-button send-comment-btn"
+            type="submit"
+            disabled={posting || !text.trim()}
+          >
+            <IconSend size={16} />
+            <span>{posting ? "Sending..." : "Send"}</span>
+          </button>
+        </div>
 
         {staff && (
-          <label className="checkbox-row">
+          <label className="checkbox-row internal-toggle-label">
             <input
               type="checkbox"
               checked={internal}
               onChange={(event) => setInternal(event.target.checked)}
             />
-            <span>Mark as internal note (hidden from the reporter)</span>
+            <span>Mark as internal note (hidden from reporter)</span>
           </label>
         )}
 
         <Banner type="error" message={postError} onClose={() => setPostError("")} />
-
-        <button className="primary-button" type="submit" disabled={posting}>
-          {posting ? "Posting..." : "Post Comment"}
-        </button>
       </form>
     </section>
   );

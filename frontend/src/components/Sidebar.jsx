@@ -1,3 +1,38 @@
+import {
+  ShieldLogo,
+  IconDashboard,
+  IconComplaints,
+  IconFilePlus,
+  IconUsers,
+  IconAnalytics,
+  IconInbox,
+  IconClock,
+  IconLogOut,
+} from "./Icons.jsx";
+
+function getMenuIcon(key) {
+  switch (key) {
+    case "dashboard":
+      return <IconDashboard size={18} />;
+    case "complaints":
+      return <IconComplaints size={18} />;
+    case "unassigned":
+      return <IconClock size={18} />;
+    case "queue":
+      return <IconInbox size={18} />;
+    case "compose":
+      return <IconFilePlus size={18} />;
+    case "users":
+      return <IconUsers size={18} />;
+    case "analytics":
+      return <IconAnalytics size={18} />;
+    case "logout":
+      return <IconLogOut size={18} />;
+    default:
+      return null;
+  }
+}
+
 export default function Sidebar({
   items,
   active,
@@ -19,7 +54,10 @@ export default function Sidebar({
 
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-head">
-          <h2 className="logo">ResolveIT</h2>
+          <div className="logo-container">
+            <ShieldLogo size={32} />
+            <h2 className="logo">ResolveIT CMS</h2>
+          </div>
           <button
             type="button"
             className="sidebar-close"
@@ -36,6 +74,7 @@ export default function Sidebar({
           {items.map((item) => {
             const isLogout = item.key === "logout";
             const isActive = !isLogout && active === item.key;
+            const iconElement = getMenuIcon(item.key);
 
             return (
               <button
@@ -52,6 +91,7 @@ export default function Sidebar({
                 }
                 onClick={() => onSelect(item.key)}
               >
+                {iconElement && <span className="menu-icon-wrap" aria-hidden="true">{iconElement}</span>}
                 {item.label}
               </button>
             );

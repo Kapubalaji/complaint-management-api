@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import * as api from "../api.js";
 import ComplaintTable from "../components/ComplaintTable.jsx";
 import { Banner } from "../components/ui.jsx";
@@ -8,6 +8,9 @@ import {
   STATUS_FILTERS,
 } from "../constants.js";
 import { normalizeStatus, canCreateComplaints } from "../utils.js";
+import { IconSearch, IconArrowLeft } from "../components/Icons.jsx";
+
+const PAGE_SIZE = 10;
 
 function filterComplaints(items, search, status, priority, category) {
   const query = search.trim().toLowerCase();
@@ -53,6 +56,7 @@ export default function ComplaintsPage({
   const [status, setStatus] = useState("All");
   const [priority, setPriority] = useState("All");
   const [category, setCategory] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
 
   const isQueueMode = mode === "unassigned" || mode === "queue";
   const [queueItems, setQueueItems] = useState([]);
@@ -94,7 +98,16 @@ export default function ComplaintsPage({
 
   const source = isQueueMode ? queueItems : complaints;
   const initialLoading = isQueueMode ? queueLoading : loading;
-  const filtered = filterComplaints(source, search, status, priority, category);
+  const filtered = useMemo(
+    () => filterComplaints(source, search, status, priority, category),
+    [source, search, status, priority, category]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginatedItems = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, currentPage]);
 
   const heading =
     mode === "unassigned"
@@ -166,32 +179,51 @@ export default function ComplaintsPage({
         </div>
       </div>
 
-      <div className="filters">
-        <input
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search by ID, title, description, or category..."
-          aria-label="Search complaints"
-        />
-
+      {/* Reference Filter Bar (Screen 05) */}
+      <div className="filters-bar-reference">
         <select
           value={status}
-          onChange={(event) => setStatus(event.target.value)}
+          onChange={(event) => {
+            setStatus(event.target.value);
+            setCurrentPage(1);
+          }}
           aria-label="Filter by status"
+          className="filter-select"
         >
           {STATUS_FILTERS.map((option) => (
             <option key={option} value={option}>
-              {option === "All" ? "All statuses" : option}
+              {option === "All" ? "All Status" : option}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={category}
+          onChange={(event) => {
+            setCategory(event.target.value);
+            setCurrentPage(1);
+          }}
+          aria-label="Filter by category"
+          className="filter-select"
+        >
+          <option value="All">All Categories</option>
+          {CATEGORIES.map((option) => (
+            <option key={option} value={option}>
+              {option}
             </option>
           ))}
         </select>
 
         <select
           value={priority}
-          onChange={(event) => setPriority(event.target.value)}
+          onChange={(event) => {
+            setPriority(event.target.value);
+            setCurrentPage(1);
+          }}
           aria-label="Filter by priority"
+          className="filter-select"
         >
-          <option value="All">All priorities</option>
+          <option value="All">All Priorities</option>
           {PRIORITIES.map((option) => (
             <option key={option} value={option}>
               {option}
@@ -199,18 +231,18 @@ export default function ComplaintsPage({
           ))}
         </select>
 
-        <select
-          value={category}
-          onChange={(event) => setCategory(event.target.value)}
-          aria-label="Filter by category"
-        >
-          <option value="All">All categories</option>
-          {CATEGORIES.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+        <div className="search-input-wrap">
+          <IconSearch size={16} className="search-icon-inside" />
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Search complaint..."
+            aria-label="Search complaints"
+          />
+        </div>
       </div>
 
       {isQueueMode && queueError && (
@@ -222,7 +254,7 @@ export default function ComplaintsPage({
       )}
 
       <ComplaintTable
-        items={filtered}
+        items={paginatedItems}
         session={session}
         staffMap={staffMap}
         loading={initialLoading}
@@ -242,6 +274,40 @@ export default function ComplaintsPage({
         }
         showAssignee={session.role !== "user"}
       />
+
+      {/* Pagination Bar (Screen 05: < 1 2 3 >) */}
+      {totalPages > 1 && (
+        <div className="pagination-bar">
+          <button
+            type="button"
+            className="pagination-btn"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            aria-label="Previous page"
+          >
+            &lt;
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+            <button
+              key={pg}
+              type="button"
+              className={`pagination-num ${pg === currentPage ? "active" : ""}`}
+              onClick={() => setCurrentPage(pg)}
+            >
+              {pg}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="pagination-btn"
+            disabled={currentPage >= totalPages}
+            onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+            aria-label="Next page"
+          >
+            &gt;
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -3,6 +3,14 @@ import * as api from "../api.js";
 import StatCard from "../components/StatCard.jsx";
 import { Spinner, EmptyState } from "../components/ui.jsx";
 import { isStaffRole, statusLabel } from "../utils.js";
+import {
+  IconComplaints,
+  IconClock,
+  IconInbox,
+  IconCheckCircle,
+  IconDownload,
+} from "../components/Icons.jsx";
+import { ComplaintsByCategoryBarChart } from "../components/SvgCharts.jsx";
 
 const TREND_LIMIT = 14;
 
@@ -251,36 +259,59 @@ export default function AnalyticsPage({ session, notify, handleError }) {
   const categoryEntries = Object.entries(analytics.by_category || {});
   const sentimentEntries = Object.entries(analytics.by_sentiment || {});
 
+  // Actual category bar data with real counts only (no fake demo fallbacks)
+  const categoryColors = ["#4f46e5", "#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe"];
+  const categoryBarData = categoryEntries
+    .filter(([_, value]) => value > 0)
+    .map(([label, value], idx) => ({
+      label: label.length > 12 ? label.slice(0, 11) + "…" : label,
+      value,
+      color: categoryColors[idx % categoryColors.length],
+    }));
+
   return (
     <>
+      {/* Reports & Analytics Toolbar */}
       <section className="analytics-toolbar">
         <div className="scope-note" data-testid="analytics-scope">
           <strong>
             {analytics.scope === "user" ? "Your complaints" : "All complaints"}
           </strong>
           <span>
-            Live database report · generated{" "}
-            {new Date(analytics.generated_at).toLocaleString()}
+            Live database report &bull; generated{" "}
+            {new Date(analytics.generated_at).toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
           </span>
         </div>
 
-        <div className="panel-actions">
-          <div className="export-range" data-testid="export-range">
-            <input
-              type="date"
-              value={exportStart}
-              onChange={(event) => setExportStart(event.target.value)}
-              aria-label="Export start date"
-              max={exportEnd || undefined}
-            />
-            <input
-              type="date"
-              value={exportEnd}
-              onChange={(event) => setExportEnd(event.target.value)}
-              aria-label="Export end date"
-              min={exportStart || undefined}
-            />
+        <div className="panel-actions analytics-filter-row">
+          <div className="export-range date-range-picker" data-testid="export-range">
+            <div className="date-field">
+              <label htmlFor="export-start-input">From</label>
+              <input
+                id="export-start-input"
+                type="date"
+                value={exportStart}
+                onChange={(event) => setExportStart(event.target.value)}
+                aria-label="Export start date"
+                max={exportEnd || undefined}
+              />
+            </div>
+            <div className="date-field">
+              <label htmlFor="export-end-input">To</label>
+              <input
+                id="export-end-input"
+                type="date"
+                value={exportEnd}
+                onChange={(event) => setExportEnd(event.target.value)}
+                aria-label="Export end date"
+                min={exportStart || undefined}
+              />
+            </div>
           </div>
+
           <button
             className="secondary-button"
             type="button"
@@ -290,81 +321,142 @@ export default function AnalyticsPage({ session, notify, handleError }) {
             Refresh
           </button>
           <button
-            className="primary-button"
+            className="primary-button export-csv-btn"
             type="button"
             onClick={handleExport}
             disabled={exporting}
           >
-            {exporting ? "Preparing..." : "Export CSV"}
+            <IconDownload size={16} />
+            <span>{exporting ? "Preparing..." : "Export CSV"}</span>
           </button>
         </div>
       </section>
 
-      <section className="stats">
-        <StatCard label="Total" value={total} />
-        <StatCard label="Open" value={totals.open || 0} />
-        <StatCard label="In Progress" value={totals.in_progress || 0} />
-        <StatCard label="Resolved" value={totals.resolved || 0} />
-        <StatCard label="Closed" value={totals.closed || 0} />
-        {staff && <StatCard label="Unassigned" value={totals.unassigned || 0} />}
-      </section>
-
-      <div className="analytics-grid">
-        <BreakdownList
-          title="Status"
-          hint="Complaints by workflow status"
-          entries={statusEntries}
-          total={total}
-        />
-        <BreakdownList
-          title="Priority"
-          hint="Complaints by AI-assigned priority"
-          entries={priorityEntries}
-          total={total}
-          toneFor={(label) => `tone-${String(label).toLowerCase()}`}
-        />
-        <BreakdownList
-          title="Category"
-          hint="Complaints by category"
-          entries={categoryEntries}
-          total={total}
-        />
-        <BreakdownList
-          title="Sentiment"
-          hint="Complaints by detected sentiment"
-          entries={sentimentEntries}
-          total={total}
-        />
-      </div>
-
-      <section className="analytics-panel">
-        <div className="panel-heading">
-          <div>
-            <h2>Resolution Performance</h2>
-            <p>Based on resolved timestamps in the database</p>
-          </div>
-        </div>
-        <section className="stats">
-          <StatCard
-            label="Resolution Rate"
-            value={`${Math.round((resolution.resolution_rate || 0) * 100)}%`}
-          />
-          <StatCard label="Resolved Count" value={resolution.resolved_count || 0} />
-          <StatCard
-            label="Avg. Resolution"
-            value={
-              resolution.avg_resolution_hours == null
-                ? "—"
-                : `${resolution.avg_resolution_hours}h`
+      {/* When total is 0, display a clear empty state */}
+      {total === 0 ? (
+        <section className="analytics-panel">
+          <EmptyState
+            title="No complaints found."
+            hint={
+              analytics.scope === "user"
+                ? "You haven't submitted any complaints yet. Analytics will appear once complaints are filed."
+                : "No complaints recorded in the system yet."
             }
           />
-          <StatCard label="Sample Size" value={resolution.total_count || 0} />
         </section>
-      </section>
+      ) : (
+        <>
+          {/* Summary Metric Cards */}
+          <section className="stats">
+            <StatCard
+              label="Total"
+              value={total}
+              accent="total"
+              icon={<IconComplaints size={24} />}
+            />
+            <StatCard
+              label="Open"
+              value={totals.open || 0}
+              accent="open"
+              icon={<IconClock size={24} />}
+            />
+            <StatCard
+              label="In Progress"
+              value={totals.in_progress || 0}
+              accent="progress"
+              icon={<IconInbox size={24} />}
+            />
+            <StatCard
+              label="Resolved"
+              value={totals.resolved || 0}
+              accent="resolved"
+              icon={<IconCheckCircle size={24} />}
+            />
+            <StatCard
+              label="Closed"
+              value={totals.closed || 0}
+              accent="closed"
+            />
+            {staff && (
+              <StatCard
+                label="Unassigned"
+                value={totals.unassigned || 0}
+                accent="open"
+              />
+            )}
+          </section>
 
-      <TrendChart trend={analytics.trend || []} />
+          {/* Single Unified Trend Chart (avoiding duplicate trend visualizations) */}
+          <TrendChart trend={analytics.trend || []} />
 
-      {staff && <WorkloadPanel analytics={analytics} />}
+          {/* Actual Complaints by Category Bar Chart */}
+          <section className="analytics-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Complaints by Category</h2>
+                <p>Volume distribution by issue category</p>
+              </div>
+            </div>
+            <ComplaintsByCategoryBarChart data={categoryBarData} />
+          </section>
+
+          {/* Breakdown Panels */}
+          <div className="analytics-grid">
+            <BreakdownList
+              title="Status"
+              hint="Complaints by workflow status"
+              entries={statusEntries}
+              total={total}
+            />
+            <BreakdownList
+              title="Priority"
+              hint="Complaints by AI-assigned priority"
+              entries={priorityEntries}
+              total={total}
+              toneFor={(label) => `tone-${String(label).toLowerCase()}`}
+            />
+            <BreakdownList
+              title="Category"
+              hint="Complaints by category"
+              entries={categoryEntries}
+              total={total}
+            />
+            <BreakdownList
+              title="Sentiment"
+              hint="Complaints by detected sentiment"
+              entries={sentimentEntries}
+              total={total}
+            />
+          </div>
+
+          <section className="analytics-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Resolution Performance</h2>
+                <p>Based on resolved timestamps in the database</p>
+              </div>
+            </div>
+            <section className="stats">
+              <StatCard
+                label="Resolution Rate"
+                value={`${Math.round((resolution.resolution_rate || 0) * 100)}%`}
+              />
+              <StatCard label="Resolved Count" value={resolution.resolved_count || 0} />
+              <StatCard
+                label="Avg. Resolution"
+                value={
+                  resolution.avg_resolution_hours == null
+                    ? "—"
+                    : `${resolution.avg_resolution_hours}h`
+                }
+              />
+              <StatCard label="Sample Size" value={resolution.total_count || 0} />
+            </section>
+          </section>
+
+          {staff && <WorkloadPanel analytics={analytics} />}
+        </>
+      )}
     </>
   );
 }

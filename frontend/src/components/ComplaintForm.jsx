@@ -3,6 +3,7 @@ import * as api from "../api.js";
 import { CATEGORIES, PRIORITIES } from "../constants.js";
 import AiInsights from "./AiInsights.jsx";
 import { Banner } from "./ui.jsx";
+import { IconUploadCloud } from "./Icons.jsx";
 
 export default function ComplaintForm({
   token,
@@ -100,43 +101,39 @@ export default function ComplaintForm({
     <section className="complaints-panel form-panel">
       <div className="form-layout">
         <div className="form-main">
-          <h2>{isEditing ? `Edit Complaint #${editing.id}` : "Submit a Complaint"}</h2>
+          <h2>{isEditing ? `Edit Complaint #${editing.id}` : "Create Complaint"}</h2>
           <p>
             {isEditing
               ? "Update the details of your complaint. AI fields stay intact unless you change them."
-              : "Tell us about the issue. AI triage runs automatically when you submit."}
+              : "Describe your issue in detail. AI triage categorizes and routes it automatically."}
           </p>
 
           <form className="complaint-form" onSubmit={handleSubmit}>
-            <label htmlFor="complaint-title">Complaint title</label>
-            <input
-              id="complaint-title"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              placeholder="Example: Internet not working"
-              maxLength={200}
-              required
-            />
-
-            <label htmlFor="complaint-description">Description</label>
-            <textarea
-              id="complaint-description"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              placeholder="Describe the issue in detail..."
-              rows="6"
-              required
-            />
-
-            <div className="form-grid">
+            <div className="form-grid-two">
               <div className="form-field">
-                <label htmlFor="complaint-category">Category</label>
+                <label htmlFor="complaint-title">
+                  Title <span className="required-star">*</span>
+                </label>
+                <input
+                  id="complaint-title"
+                  value={title}
+                  onChange={(event) => setTitle(event.target.value)}
+                  placeholder="Example: Internet not working"
+                  maxLength={200}
+                  required
+                />
+              </div>
+
+              <div className="form-field">
+                <label htmlFor="complaint-category">
+                  Category <span className="required-star">*</span>
+                </label>
                 <select
                   id="complaint-category"
                   value={category}
                   onChange={(event) => setCategory(event.target.value)}
                 >
-                  {!isEditing && <option value="">Auto (AI decides)</option>}
+                  {!isEditing && <option value="">Select Category</option>}
                   {CATEGORIES.map((option) => (
                     <option key={option} value={option}>
                       {option}
@@ -144,21 +141,52 @@ export default function ComplaintForm({
                   ))}
                 </select>
               </div>
+            </div>
 
-              <div className="form-field">
-                <label htmlFor="complaint-priority">Priority</label>
-                <select
-                  id="complaint-priority"
-                  value={priority}
-                  onChange={(event) => setPriority(event.target.value)}
-                >
-                  {!isEditing && <option value="">Auto (AI decides)</option>}
-                  {PRIORITIES.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+            <div className="form-field">
+              <label htmlFor="complaint-priority">
+                Priority <span className="required-star">*</span>
+              </label>
+              <select
+                id="complaint-priority"
+                value={priority}
+                onChange={(event) => setPriority(event.target.value)}
+              >
+                {!isEditing && <option value="">Select Priority</option>}
+                {PRIORITIES.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-field">
+              <label htmlFor="complaint-description">
+                Description <span className="required-star">*</span>
+              </label>
+              <textarea
+                id="complaint-description"
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                placeholder="Describe your issue in detail..."
+                rows="5"
+                required
+              />
+            </div>
+
+            {/* Styled Drag & Drop Upload Zone (Screen 08) */}
+            <div className="form-field">
+              <label>Upload Image (Optional)</label>
+              <div className="upload-dropzone" role="region" aria-label="Image upload area">
+                <IconUploadCloud size={34} className="upload-cloud-icon" />
+                <p className="upload-text">
+                  <strong>Click to upload</strong> or drag and drop
+                </p>
+                <span className="upload-hint">PNG, JPG up to 5MB</span>
+                <span className="upload-status-note">
+                  (Image upload preview mode — server attachment storage coming soon)
+                </span>
               </div>
             </div>
 
@@ -168,17 +196,14 @@ export default function ComplaintForm({
               onClose={() => setFormError("")}
             />
 
-            <div className="form-actions">
+            <div className="form-actions-row">
               <button
-                className="primary-button"
-                type="submit"
+                className="secondary-button"
+                type="button"
+                onClick={onCancel}
                 disabled={submitting}
               >
-                {submitting
-                  ? "Saving..."
-                  : isEditing
-                    ? "Save Changes"
-                    : "Submit Complaint"}
+                Cancel
               </button>
 
               {!isEditing && (
@@ -193,12 +218,15 @@ export default function ComplaintForm({
               )}
 
               <button
-                className="secondary-button"
-                type="button"
-                onClick={onCancel}
+                className="primary-button"
+                type="submit"
                 disabled={submitting}
               >
-                Cancel
+                {submitting
+                  ? "Saving..."
+                  : isEditing
+                    ? "Save Changes"
+                    : "Submit Complaint"}
               </button>
             </div>
           </form>

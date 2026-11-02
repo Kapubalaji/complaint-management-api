@@ -16,6 +16,13 @@ import ComplaintsPage from "./pages/ComplaintsPage.jsx";
 import ComplaintDetailsPage from "./pages/ComplaintDetailsPage.jsx";
 import ComplaintForm from "./components/ComplaintForm.jsx";
 import UsersPage from "./pages/UsersPage.jsx";
+import {
+  IconDashboard,
+  IconComplaints,
+  IconFilePlus,
+  IconAnalytics,
+  IconUser,
+} from "./components/Icons.jsx";
 
 function extractFragmentResetToken() {
   if (typeof window === "undefined" || !window.location || !window.location.hash) {
@@ -415,6 +422,63 @@ function App({ initialPage = "dashboard" } = {}) {
 
         {renderContent()}
       </main>
+
+      {/* Mobile Bottom Navigation Bar (Screen 12) */}
+      <nav className="mobile-bottom-nav" aria-label="Mobile quick navigation">
+        <button
+          type="button"
+          className={`mobile-nav-btn ${route.page === "dashboard" ? "active" : ""}`}
+          onClick={() => go("dashboard")}
+          aria-label="Dashboard"
+        >
+          <IconDashboard size={20} />
+          <span>Dashboard</span>
+        </button>
+
+        <button
+          type="button"
+          className={`mobile-nav-btn ${route.page === "complaints" || route.page === "queue" || route.page === "unassigned" ? "active" : ""}`}
+          onClick={() => go("complaints")}
+          aria-label="Complaints"
+        >
+          <IconComplaints size={20} />
+          <span>Complaints</span>
+        </button>
+
+        {canCreateComplaints(session) && (
+          <button
+            type="button"
+            className={`mobile-nav-btn mobile-nav-create ${route.page === "compose" ? "active" : ""}`}
+            onClick={() => go("compose")}
+            aria-label="Raise Complaint"
+          >
+            <div className="create-fab-icon">
+              <IconFilePlus size={18} />
+            </div>
+            <span>Raise</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className={`mobile-nav-btn ${route.page === "analytics" ? "active" : ""}`}
+          onClick={() => go("analytics")}
+          aria-label="Analytics"
+        >
+          <IconAnalytics size={20} />
+          <span>Analytics</span>
+        </button>
+
+        <button
+          type="button"
+          className="mobile-nav-btn"
+          onClick={() => setNavOpen(true)}
+          aria-label="Open menu"
+        >
+          <IconUser size={20} />
+          <span>Profile</span>
+        </button>
+      </nav>
     </div>
   );
 }

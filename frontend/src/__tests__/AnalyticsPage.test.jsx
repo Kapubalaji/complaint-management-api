@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act, within } from "@testing-library/react";
 
 vi.mock("../api.js", () => ({
   getAnalytics: vi.fn(),
@@ -116,7 +116,10 @@ describe("AnalyticsPage with live backend data", () => {
     expect(screen.getByText("Priority")).toBeTruthy();
     expect(screen.getByText("Category")).toBeTruthy();
     expect(screen.getByText("Sentiment")).toBeTruthy();
-    expect(screen.getByText("IT & Systems")).toBeTruthy();
+    const categoryHeading = screen.getByRole("heading", { name: "Category" });
+    const categorySection = categoryHeading.closest("section");
+    expect(within(categorySection).getByText("IT & Systems")).toBeTruthy();
+    expect(screen.getAllByText("IT & Systems")).toHaveLength(2);
     expect(screen.getByText("Urgent")).toBeTruthy();
 
     // Trend window

@@ -2,6 +2,12 @@ import StatCard from "../components/StatCard.jsx";
 import ComplaintTable from "../components/ComplaintTable.jsx";
 import { Spinner } from "../components/ui.jsx";
 import { normalizeStatus } from "../utils.js";
+import {
+  IconComplaints,
+  IconClock,
+  IconInbox,
+  IconCheckCircle,
+} from "../components/Icons.jsx";
 
 export default function UserDashboard({
   session,
@@ -26,10 +32,30 @@ export default function UserDashboard({
   ).length;
 
   const cards = [
-    { label: "Total Complaints", value: total },
-    { label: "Open", value: open },
-    { label: "In Progress", value: inProgress },
-    { label: "Resolved", value: resolved },
+    {
+      label: "My Complaints",
+      value: total,
+      accent: "total",
+      icon: <IconComplaints size={24} />,
+    },
+    {
+      label: "Open",
+      value: open,
+      accent: "open",
+      icon: <IconClock size={24} />,
+    },
+    {
+      label: "In Progress",
+      value: inProgress,
+      accent: "progress",
+      icon: <IconInbox size={24} />,
+    },
+    {
+      label: "Resolved",
+      value: resolved,
+      accent: "resolved",
+      icon: <IconCheckCircle size={24} />,
+    },
   ];
 
   const recent = complaints.slice(0, 5);
@@ -43,7 +69,13 @@ export default function UserDashboard({
 
       <section className="stats">
         {cards.map((card) => (
-          <StatCard key={card.label} label={card.label} value={card.value} />
+          <StatCard
+            key={card.label}
+            label={card.label}
+            value={card.value}
+            accent={card.accent}
+            icon={card.icon}
+          />
         ))}
       </section>
 

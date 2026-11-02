@@ -12,6 +12,7 @@ import { Spinner, Banner } from "../components/ui.jsx";
 import { STATUSES } from "../constants.js";
 import {
   formatDate,
+  formatDay,
   resolveUserLabel,
   canEditComplaint,
   canDeleteComplaint,
@@ -19,6 +20,13 @@ import {
   canAssignComplaints,
   statusLabel,
 } from "../utils.js";
+import {
+  IconArrowLeft,
+  IconCalendar,
+  IconClock,
+  IconTag,
+  IconUser,
+} from "../components/Icons.jsx";
 
 export default function ComplaintDetailsPage({
   complaintId,
@@ -197,12 +205,23 @@ export default function ComplaintDetailsPage({
     label,
   }));
 
+  const assignedStaffName = complaint.assigned_staff_id
+    ? resolveUserLabel(complaint.assigned_staff_id, session, staffMap)
+    : null;
+
   return (
     <>
       <section className="complaints-panel detail-panel">
+        {/* Back Link (Screen 06: < Back to list) */}
         <div className="detail-topbar">
-          <button className="secondary-button" type="button" onClick={onBack}>
-            &larr; Back
+          <button
+            className="back-to-list-btn"
+            type="button"
+            onClick={onBack}
+            aria-label="Back to complaints"
+          >
+            <IconArrowLeft size={16} />
+            <span>Back to list</span>
           </button>
 
           <div className="detail-actions">
@@ -227,34 +246,80 @@ export default function ComplaintDetailsPage({
           </div>
         </div>
 
-        <div className="detail-title">
-          <span className="detail-id">#{complaint.id}</span>
-          <h2>{complaint.title}</h2>
-        </div>
+        {/* Title & Badges Banner (Screen 06) */}
+        <div className="detail-header-card">
+          <div className="detail-title-row">
+            <h2>
+              <span className="detail-id-hash">#{complaint.id}</span> — {complaint.title}
+            </h2>
+            <div className="detail-pill-badges">
+              <StatusBadge status={complaint.status} />
+              <PriorityBadge priority={complaint.priority} />
+            </div>
+          </div>
 
-        <div className="detail-badges">
-          <StatusBadge status={complaint.status} />
-          <PriorityBadge priority={complaint.priority} />
-          <CategoryBadge category={complaint.category} />
-          <SentimentBadge sentiment={complaint.sentiment} />
+          <div className="detail-meta-icons-row">
+            <span className="meta-icon-item">
+              <IconTag size={15} />
+              <span>{complaint.category || "General"}</span>
+            </span>
+            <span className="meta-icon-item">
+              <IconCalendar size={15} />
+              <span>{formatDay(complaint.created_at)}</span>
+            </span>
+            <span className="meta-icon-item">
+              <IconClock size={15} />
+              <span>{formatDate(complaint.created_at)}</span>
+            </span>
+            {complaint.sentiment && (
+              <SentimentBadge sentiment={complaint.sentiment} />
+            )}
+          </div>
         </div>
 
         <div className="detail-layout">
           <div className="detail-main">
+            {/* Description Card */}
             <article className="detail-card">
               <h3>Description</h3>
               <p className="detail-description">{complaint.description}</p>
             </article>
 
-            <AiInsights
-              analysis={complaint}
-              staffMap={staffMap}
-              session={session}
-              onReanalyze={handleReanalyze}
-              reanalyzing={reanalyzing}
-              note="Analysis stored on this complaint. Re-run to refresh category, priority, sentiment, summary, and staff suggestion."
-            />
+            {/* Attached Image Preview Card (Screen 06) */}
+            <article className="detail-card">
+              <h3>Image</h3>
+              <div className="image-preview-box">
+                <div className="image-preview-placeholder">
+                  <span className="preview-tag">Attached Photo Preview</span>
+                  <p className="preview-sub">#{complaint.id} &bull; {complaint.category || "Issue"}</p>
+                </div>
+              </div>
+            </article>
 
+            {/* Assigned To Section (Screen 06) */}
+            <article className="detail-card assigned-technician-card">
+              <h3>Assigned To</h3>
+              {assignedStaffName ? (
+                <div className="technician-profile-row">
+                  <div className="technician-avatar">
+                    {assignedStaffName.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="technician-info">
+                    <strong>{assignedStaffName}</strong>
+                    <small>Technician / Support Staff</small>
+                  </div>
+                  <span className="assigned-date">
+                    {formatDate(complaint.updated_at || complaint.created_at)}
+                  </span>
+                </div>
+              ) : (
+                <p className="unassigned-notice">
+                  No technician assigned yet. Support administration assigns incoming requests.
+                </p>
+              )}
+            </article>
+
+            {/* Comments Thread (Screen 06) */}
             <CommentThread
               token={token}
               complaintId={complaint.id}
@@ -264,47 +329,17 @@ export default function ComplaintDetailsPage({
           </div>
 
           <aside className="detail-side">
-            <section className="detail-card">
-              <h3>Details</h3>
-              <dl className="meta-list">
-                <dt>Reporter</dt>
-                <dd>
-                  {complaint.user_id === session.userId
-                    ? "You"
-                    : `User #${complaint.user_id}`}
-                </dd>
+            {/* AI Insights Panel */}
+            <AiInsights
+              analysis={complaint}
+              staffMap={staffMap}
+              session={session}
+              onReanalyze={handleReanalyze}
+              reanalyzing={reanalyzing}
+              note="AI triage results stored on this complaint. Re-run to refresh category, priority, sentiment, and staff recommendation."
+            />
 
-                <dt>Assigned to</dt>
-                <dd>
-                  {resolveUserLabel(
-                    complaint.assigned_staff_id,
-                    session,
-                    staffMap
-                  )}
-                </dd>
-
-                <dt>Suggested staff</dt>
-                <dd>
-                  {complaint.suggested_staff_id
-                    ? resolveUserLabel(
-                        complaint.suggested_staff_id,
-                        session,
-                        staffMap
-                      )
-                    : "None"}
-                </dd>
-
-                <dt>Created</dt>
-                <dd>{formatDate(complaint.created_at)}</dd>
-
-                <dt>Updated</dt>
-                <dd>{formatDate(complaint.updated_at)}</dd>
-
-                <dt>Resolved</dt>
-                <dd>{formatDate(complaint.resolved_at)}</dd>
-              </dl>
-            </section>
-
+            {/* Status Update Form (Staff / Admin) */}
             {staff && (
               <section className="detail-card">
                 <h3>Update Status</h3>
@@ -350,6 +385,7 @@ export default function ComplaintDetailsPage({
               </section>
             )}
 
+            {/* Assignment Panel (Admin Only - Screen 09) */}
             {canAssign && (
               <section className="detail-card" data-testid="assignment-panel">
                 <h3>Assignment</h3>
@@ -390,7 +426,7 @@ export default function ComplaintDetailsPage({
                 <h3>Need a status change?</h3>
                 <p>
                   Support staff review and update complaints. You&apos;ll see
-                  status changes and replies in the comments below.
+                  status updates and replies in the comments.
                 </p>
               </section>
             )}
