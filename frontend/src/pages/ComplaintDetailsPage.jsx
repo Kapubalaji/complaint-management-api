@@ -5,7 +5,6 @@ import CommentThread from "../components/CommentThread.jsx";
 import {
   StatusBadge,
   PriorityBadge,
-  CategoryBadge,
   SentimentBadge,
 } from "../components/badges.jsx";
 import { Spinner, Banner } from "../components/ui.jsx";
@@ -25,7 +24,6 @@ import {
   IconCalendar,
   IconClock,
   IconTag,
-  IconUser,
 } from "../components/Icons.jsx";
 
 export default function ComplaintDetailsPage({
@@ -295,6 +293,48 @@ export default function ComplaintDetailsPage({
                 </div>
               </div>
             </article>
+
+            {/* Reported By Section (Admin and Staff only) */}
+            {staff && (
+              <article className="detail-card reported-by-card" data-testid="reported-by-card">
+                <h3>Reported By</h3>
+                {complaint.reporter ? (
+                  <div className="technician-profile-row">
+                    <div className="technician-avatar">
+                      {(complaint.reporter.full_name || complaint.reporter.username || "?")
+                        .charAt(0)
+                        .toUpperCase()}
+                    </div>
+                    <div className="technician-info">
+                      {complaint.reporter.full_name ? (
+                        <>
+                          <strong className="reporter-fullname">
+                            {complaint.reporter.full_name}
+                          </strong>
+                          <small className="reporter-username">
+                            {complaint.reporter.username}
+                          </small>
+                        </>
+                      ) : (
+                        <>
+                          <strong className="reporter-username">
+                            {complaint.reporter.username}
+                          </strong>
+                          <small>Complaint Creator</small>
+                        </>
+                      )}
+                    </div>
+                    <span className="assigned-date">
+                      {formatDate(complaint.created_at)}
+                    </span>
+                  </div>
+                ) : (
+                  <p className="unassigned-notice">
+                    Reporter information unavailable.
+                  </p>
+                )}
+              </article>
+            )}
 
             {/* Assigned To Section (Screen 06) */}
             <article className="detail-card assigned-technician-card">

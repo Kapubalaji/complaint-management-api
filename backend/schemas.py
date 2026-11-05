@@ -52,6 +52,15 @@ class ComplaintCreate(BaseModel):
     category: str | None = None
     priority: str | None = None
 
+class ComplaintReporter(BaseModel):
+    id: int
+    username: str
+    full_name: str | None = None
+
+    model_config = {
+        "from_attributes": True
+    }
+
 class ComplaintResponse(BaseModel):
     id: int
     title: str
@@ -67,6 +76,7 @@ class ComplaintResponse(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     resolved_at: datetime | None = None
+    reporter: ComplaintReporter | None = None
 
     model_config = {
         "from_attributes": True

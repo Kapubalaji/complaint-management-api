@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
 from backend.database import Base
+from backend.models.user import User
 
 
 class Complaint(Base):
@@ -14,6 +16,9 @@ class Complaint(Base):
     priority = Column(String(50), nullable=True, default="Medium")
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     assigned_staff_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # Relationship to creator (reporter)
+    reporter = relationship("User", foreign_keys=[user_id], lazy="joined")
 
     # AI generated fields
     sentiment = Column(String(50), nullable=True)

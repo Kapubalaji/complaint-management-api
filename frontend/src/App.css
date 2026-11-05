@@ -2380,7 +2380,8 @@ button:disabled {
   color: #94a3b8;
 }
 
-.assigned-technician-card h3 {
+.assigned-technician-card h3,
+.reported-by-card h3 {
   margin-bottom: 12px;
 }
 

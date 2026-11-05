@@ -191,5 +191,127 @@ class TestPhase2Workflow(unittest.TestCase):
         ).json()
         self.assertTrue(any("Replaced AC filter" in c["comment"] for c in comments))
 
+    def test_complaint_reporter_information(self):
+        reporter = self.create_user("jdoe", role="user", email="jdoe@example.com")
+        admin = self.create_user("admin_reviewer", role="admin")
+
+        reporter_token = create_access_token(reporter.username, role=reporter.role)
+        admin_token = create_access_token(admin.username, role=admin.role)
+
+        # Create complaint as reporter
+        res_create = self.client.post(
+            "/complaints",
+            json={"title": "Broken desk", "description": "Leg is broken"},
+            headers={"Authorization": f"Bearer {reporter_token}"}
+        )
+        self.assertEqual(res_create.status_code, 201)
+        cid = res_create.json()["id"]
+
+        # Admin gets complaint
+        res_get = self.client.get(
+            f"/complaints/{cid}",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_get.status_code, 200)
+        data = res_get.json()
+
+        # Requirement 1 & 4: Reporter information present
+        self.assertIn("reporter", data)
+        self.assertIsNotNone(data["reporter"])
+        self.assertEqual(data["reporter"]["username"], "jdoe")
+        self.assertEqual(data["reporter"]["full_name"], "Jdoe User")
+        self.assertEqual(data["reporter"]["id"], reporter.id)
+
+        # Requirement 6: Do not expose email or other unnecessary PII
+        self.assertNotIn("email", data["reporter"])
+        self.assertNotIn("password", data["reporter"])
+        self.assertNotIn("token_version", data["reporter"])
+        self.assertNotIn("role", data["reporter"])
+
+    def test_reporter_preserved_after_reassignment(self):
+        original_creator = self.create_user("original_reporter", role="user")
+        tech1 = self.create_user("technician_alpha", role="staff")
+        tech2 = self.create_user("technician_beta", role="staff")
+        admin = self.create_user("assigning_admin", role="admin")
+
+        user_token = create_access_token(original_creator.username, role=original_creator.role)
+        admin_token = create_access_token(admin.username, role=admin.role)
+        tech1_token = create_access_token(tech1.username, role=tech1.role)
+
+        # Create complaint
+        res_comp = self.client.post(
+            "/complaints",
+            json={"title": "Projector broken", "description": "Conference room B"},
+            headers={"Authorization": f"Bearer {user_token}"}
+        )
+        cid = res_comp.json()["id"]
+
+        # Admin assigns to technician alpha
+        res_assign1 = self.client.patch(
+            f"/complaints/{cid}/assign",
+            json={"assigned_staff_id": tech1.id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_assign1.status_code, 200)
+        data1 = res_assign1.json()
+        self.assertEqual(data1["assigned_staff_id"], tech1.id)
+        # Requirement 3 & 10: Reporter is original creator, NOT technician alpha
+        self.assertEqual(data1["reporter"]["username"], "original_reporter")
+        self.assertNotEqual(data1["reporter"]["username"], "technician_alpha")
+
+        # Admin reassigns to technician beta
+        res_assign2 = self.client.patch(
+            f"/complaints/{cid}/assign",
+            json={"assigned_staff_id": tech2.id},
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_assign2.status_code, 200)
+        data2 = res_assign2.json()
+        self.assertEqual(data2["assigned_staff_id"], tech2.id)
+        # Reporter still remains the original creator
+        self.assertEqual(data2["reporter"]["username"], "original_reporter")
+        self.assertNotEqual(data2["reporter"]["username"], "technician_beta")
+
+        # Staff fetching complaint also sees original creator
+        res_staff_view = self.client.get(
+            f"/complaints/{cid}",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_staff_view.json()["reporter"]["username"], "original_reporter")
+
+    def test_complaint_reporter_without_full_name(self):
+        session = TestingSessionLocal()
+        user_no_name = User(
+            username="noname_user",
+            password=hash_password("password123"),
+            email="noname@example.com",
+            full_name=None,
+            role="user"
+        )
+        session.add(user_no_name)
+        session.commit()
+        session.refresh(user_no_name)
+        session.close()
+
+        user_token = create_access_token(user_no_name.username, role=user_no_name.role)
+        admin = self.create_user("super_admin", role="admin")
+        admin_token = create_access_token(admin.username, role=admin.role)
+
+        res_comp = self.client.post(
+            "/complaints",
+            json={"title": "No name issue", "description": "Testing empty full name"},
+            headers={"Authorization": f"Bearer {user_token}"}
+        )
+        cid = res_comp.json()["id"]
+
+        res_get = self.client.get(
+            f"/complaints/{cid}",
+            headers={"Authorization": f"Bearer {admin_token}"}
+        )
+        self.assertEqual(res_get.status_code, 200)
+        rep = res_get.json()["reporter"]
+        self.assertEqual(rep["username"], "noname_user")
+        self.assertIsNone(rep["full_name"])
+
 if __name__ == "__main__":
     unittest.main()
