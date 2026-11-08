@@ -192,6 +192,81 @@ export function assignComplaint(token, complaintId, assignedStaffId) {
 }
 
 /* ----------------------------------
+   Complaint images (Cloudinary)
+---------------------------------- */
+
+export function uploadComplaintImages(
+  token,
+  complaintId,
+  files,
+  imageType = "issue",
+  onProgress = null
+) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const url = `${API_BASE_URL}/complaints/${complaintId}/images`;
+    const formData = new FormData();
+
+    for (const file of files) {
+      formData.append("files", file);
+    }
+    formData.append("image_type", imageType);
+
+    xhr.open("POST", url);
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && event.total > 0) {
+          const percent = Math.round((event.loaded / event.total) * 100);
+          onProgress(percent);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      let data = {};
+      try {
+        data = JSON.parse(xhr.responseText);
+      } catch {
+        data = {};
+      }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(data);
+      } else {
+        const message = extractDetail(data, xhr.status);
+        reject(new ApiError(message, xhr.status));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(
+        new ApiError(
+          "Unable to upload images. Please check your network connection.",
+          0
+        )
+      );
+    };
+
+    xhr.send(formData);
+  });
+}
+
+export function getComplaintImages(token, complaintId) {
+  return request(`/complaints/${complaintId}/images`, { token });
+}
+
+export function deleteComplaintImage(token, complaintId, imageId) {
+  return request(`/complaints/${complaintId}/images/${imageId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+/* ----------------------------------
    Complaint comments
 ---------------------------------- */
 

@@ -61,6 +61,22 @@ class ComplaintReporter(BaseModel):
         "from_attributes": True
     }
 
+class ComplaintImageResponse(BaseModel):
+    id: int
+    complaint_id: int
+    user_id: int
+    image_url: str
+    public_id: str | None = None
+    image_type: str = "issue"  # "issue" or "repair"
+    original_filename: str | None = None
+    file_size: int | None = None
+    mime_type: str | None = None
+    created_at: datetime | None = None
+
+    model_config = {
+        "from_attributes": True
+    }
+
 class ComplaintResponse(BaseModel):
     id: int
     title: str
@@ -77,6 +93,7 @@ class ComplaintResponse(BaseModel):
     updated_at: datetime | None = None
     resolved_at: datetime | None = None
     reporter: ComplaintReporter | None = None
+    images: list[ComplaintImageResponse] = []
 
     model_config = {
         "from_attributes": True

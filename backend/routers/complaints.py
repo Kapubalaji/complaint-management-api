@@ -1,9 +1,10 @@
+import logging
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from backend.models.user import User
 from backend.database import engine
-from backend.models.complaint import Complaint, ComplaintComment
+from backend.models.complaint import Complaint, ComplaintComment, ComplaintImage
 from backend.security import get_current_user, require_role
 from backend.schemas import (
     ComplaintCreate,
@@ -13,9 +14,17 @@ from backend.schemas import (
     ComplaintAssign,
     ComplaintStatusUpdate,
     CommentCreate,
-    CommentResponse
+    CommentResponse,
+    ComplaintImageResponse,
+)
+from backend.services.cloudinary_service import (
+    validate_image_file,
+    upload_image_to_cloudinary,
+    delete_image_from_cloudinary,
+    MAX_IMAGES_PER_COMPLAINT,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -254,8 +263,27 @@ def delete_complaint(complaint_id: int, current_user: User = Depends(get_current
                 detail="Complaint not found"
             )
 
-        session.delete(complaint)
-        session.commit()
+        # Collect Cloudinary public_ids for all attached images before deletion
+        public_ids_to_delete = [
+            img.public_id for img in complaint.images if img.public_id
+        ]
+
+        try:
+            session.delete(complaint)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error deleting complaint: {str(e)}"
+            )
+
+        # Safely delete Cloudinary assets after DB commit succeeds
+        for pid in public_ids_to_delete:
+            try:
+                delete_image_from_cloudinary(pid)
+            except Exception as e:
+                logger.error("Failed to delete Cloudinary asset %s on complaint deletion: %s", pid, e)
 
     return {"message": "Complaint deleted successfully"}
 
@@ -318,3 +346,149 @@ def add_complaint_comment(
         session.commit()
         session.refresh(comment)
         return comment
+
+
+@router.post(
+    "/complaints/{complaint_id}/images",
+    response_model=list[ComplaintImageResponse],
+    status_code=201
+)
+async def upload_complaint_images(
+    complaint_id: int,
+    files: list[UploadFile] = File(...),
+    image_type: str = Form("issue"),
+    current_user: User = Depends(get_current_user)
+):
+    valid_types = ["issue", "repair"]
+    normalized_type = (image_type or "issue").lower().strip()
+    if normalized_type not in valid_types:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid image_type '{image_type}'. Allowed values: {', '.join(valid_types)}"
+        )
+
+    # Permission check: Residents can only upload issue images.
+    # Repair completion photos can only be uploaded by staff or admin.
+    if normalized_type == "repair" and current_user.role not in ["staff", "admin"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Only staff and admin can upload repair completion photos"
+        )
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided for upload.")
+
+    with Session(engine) as session:
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
+
+        existing_count = session.query(ComplaintImage).filter(
+            ComplaintImage.complaint_id == complaint.id
+        ).count()
+
+        if existing_count + len(files) > MAX_IMAGES_PER_COMPLAINT:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot upload {len(files)} image(s). A complaint can have at most {MAX_IMAGES_PER_COMPLAINT} images (currently has {existing_count})."
+            )
+
+        # Pre-validate all files to prevent partial uploads
+        validated_files = []
+        for file in files:
+            file_bytes = await file.read()
+            mime_type = validate_image_file(file.filename or "image.jpg", file.content_type or "", file_bytes)
+            validated_files.append({
+                "filename": file.filename or "image.jpg",
+                "bytes": file_bytes,
+                "mime_type": mime_type,
+            })
+
+        # Upload to Cloudinary and record metadata in PostgreSQL
+        created_records = []
+        for item in validated_files:
+            upload_res = upload_image_to_cloudinary(
+                item["bytes"],
+                item["filename"],
+                folder=f"complaint_{complaint_id}"
+            )
+            img_record = ComplaintImage(
+                complaint_id=complaint.id,
+                user_id=current_user.id,
+                image_url=upload_res["secure_url"],
+                public_id=upload_res.get("public_id"),
+                image_type=normalized_type,
+                original_filename=item["filename"],
+                file_size=upload_res.get("bytes", len(item["bytes"])),
+                mime_type=item["mime_type"],
+            )
+            session.add(img_record)
+            created_records.append(img_record)
+
+        session.commit()
+        for rec in created_records:
+            session.refresh(rec)
+
+        return created_records
+
+
+@router.get(
+    "/complaints/{complaint_id}/images",
+    response_model=list[ComplaintImageResponse]
+)
+def get_complaint_images(
+    complaint_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    with Session(engine) as session:
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
+        return (
+            session.query(ComplaintImage)
+            .filter(ComplaintImage.complaint_id == complaint.id)
+            .order_by(ComplaintImage.created_at.asc())
+            .all()
+        )
+
+
+@router.delete(
+    "/complaints/{complaint_id}/images/{image_id}",
+    status_code=200
+)
+def delete_complaint_image(
+    complaint_id: int,
+    image_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    with Session(engine) as session:
+        complaint = _load_scoped_complaint(session, complaint_id, current_user)
+
+        image = session.query(ComplaintImage).filter(
+            ComplaintImage.id == image_id,
+            ComplaintImage.complaint_id == complaint.id
+        ).first()
+
+        if not image:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+        # Only uploader or admin can delete an image
+        if current_user.role != "admin" and image.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this image")
+
+        public_id = image.public_id
+
+        try:
+            session.delete(image)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error deleting image: {str(e)}"
+            )
+
+        # Safely delete Cloudinary asset after DB commit succeeds
+        if public_id:
+            try:
+                delete_image_from_cloudinary(public_id)
+            except Exception as e:
+                logger.error("Failed to delete Cloudinary asset %s: %s", public_id, e)
+
+        return {"message": "Image deleted successfully"}

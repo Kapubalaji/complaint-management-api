@@ -20,6 +20,7 @@ export default function ComplaintTable({
   onDelete,
   onAssignToMe,
   showAssignee = true,
+  showRepairProof = session?.role === "admin",
 }) {
   if (loading) {
     return <Spinner label="Loading complaints..." />;
@@ -40,6 +41,7 @@ export default function ComplaintTable({
             <th>Priority</th>
             <th>Status</th>
             {showAssignee && <th>Assigned</th>}
+            {showRepairProof && <th>Finishing Work</th>}
             <th>Created</th>
             <th>Actions</th>
           </tr>
@@ -79,6 +81,46 @@ export default function ComplaintTable({
                 {showAssignee && (
                   <td className="table-secondary">
                     {resolveUserLabel(item.assigned_staff_id, session, staffMap)}
+                  </td>
+                )}
+                {showRepairProof && (
+                  <td className="table-repair-proof-cell">
+                    {(() => {
+                      const repairImages =
+                        item.images?.filter((img) => img.image_type === "repair") || [];
+                      if (repairImages.length > 0) {
+                        return (
+                          <div
+                            className="table-repair-preview-wrap"
+                            onClick={() => onView(item)}
+                            role="button"
+                            tabIndex={0}
+                            title={`${repairImages.length} finishing work photo(s) attached — click to view`}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                onView(item);
+                              }
+                            }}
+                          >
+                            <img
+                              src={repairImages[0].image_url}
+                              alt={repairImages[0].original_filename || "Finishing work"}
+                              className="table-repair-thumb"
+                            />
+                            {repairImages.length > 1 && (
+                              <span className="table-repair-count">
+                                +{repairImages.length - 1}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      }
+                      if (["resolved", "closed"].includes(item.status?.toLowerCase())) {
+                        return <span className="table-proof-none">No photo</span>;
+                      }
+                      return <span className="table-secondary">—</span>;
+                    })()}
                   </td>
                 )}
                 <td className="table-secondary">{formatDay(item.created_at)}</td>

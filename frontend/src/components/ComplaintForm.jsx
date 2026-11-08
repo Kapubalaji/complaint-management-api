@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import * as api from "../api.js";
 import { CATEGORIES, PRIORITIES } from "../constants.js";
 import AiInsights from "./AiInsights.jsx";
 import { Banner } from "./ui.jsx";
-import { IconUploadCloud } from "./Icons.jsx";
+import { IconUploadCloud, IconX } from "./Icons.jsx";
+
+const MAX_PHOTOS = 5;
+const MAX_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB
+const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 
 export default function ComplaintForm({
   token,
@@ -23,6 +27,62 @@ export default function ComplaintForm({
 
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  // Selected images state
+  const [selectedImages, setSelectedImages] = useState([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [imageError, setImageError] = useState("");
+  const [uploadProgress, setUploadProgress] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Revoke preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      selectedImages.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, [selectedImages]);
+
+  function handleFiles(filesList) {
+    setImageError("");
+    const incoming = Array.from(filesList);
+    if (!incoming.length) return;
+
+    if (selectedImages.length + incoming.length > MAX_PHOTOS) {
+      setImageError(`You can upload at most ${MAX_PHOTOS} images per complaint.`);
+      return;
+    }
+
+    const validated = [];
+    for (const file of incoming) {
+      if (!ALLOWED_TYPES.includes(file.type)) {
+        setImageError(`"${file.name}" is not a supported image format. Supported formats: PNG, JPG, WebP, GIF.`);
+        return;
+      }
+      if (file.size > MAX_SIZE_BYTES) {
+        setImageError(`"${file.name}" exceeds the 5MB size limit.`);
+        return;
+      }
+      validated.push({
+        id: `${file.name}-${file.lastModified}-${Math.random()}`,
+        file,
+        name: file.name,
+        size: file.size,
+        previewUrl: URL.createObjectURL(file),
+      });
+    }
+
+    setSelectedImages((prev) => [...prev, ...validated]);
+  }
+
+  function handleRemoveImage(idToRemove) {
+    setSelectedImages((prev) => {
+      const item = prev.find((i) => i.id === idToRemove);
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((i) => i.id !== idToRemove);
+    });
+  }
 
   const [previewLoading, setPreviewLoading] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -72,6 +132,18 @@ export default function ComplaintForm({
         if (priority) changes.priority = priority;
 
         saved = await api.patchComplaint(token, editing.id, changes);
+
+        // Upload any newly selected images if updating
+        if (selectedImages.length > 0) {
+          setUploadProgress(0);
+          await api.uploadComplaintImages(
+            token,
+            editing.id,
+            selectedImages.map((item) => item.file),
+            "issue",
+            (pct) => setUploadProgress(pct)
+          );
+        }
         notify("success", `Complaint #${editing.id} updated successfully.`);
       } else {
         const payload = {
@@ -83,10 +155,34 @@ export default function ComplaintForm({
         if (priority) payload.priority = priority;
 
         saved = await api.createComplaint(token, payload);
-        notify(
-          "success",
-          "Complaint submitted. AI triage results are now attached."
-        );
+
+        // Upload selected images attached to newly created complaint
+        if (selectedImages.length > 0) {
+          setUploadProgress(0);
+          try {
+            await api.uploadComplaintImages(
+              token,
+              saved.id,
+              selectedImages.map((item) => item.file),
+              "issue",
+              (pct) => setUploadProgress(pct)
+            );
+            notify(
+              "success",
+              "Complaint submitted with photo(s). AI triage results attached."
+            );
+          } catch (uploadErr) {
+            notify(
+              "error",
+              `Complaint #${saved.id} created, but image upload failed: ${uploadErr.message}`
+            );
+          }
+        } else {
+          notify(
+            "success",
+            "Complaint submitted. AI triage results are now attached."
+          );
+        }
       }
 
       onSaved(saved);
@@ -94,6 +190,7 @@ export default function ComplaintForm({
       setFormError(err.message || "Unable to save the complaint.");
     } finally {
       setSubmitting(false);
+      setUploadProgress(null);
     }
   }
 
@@ -177,17 +274,112 @@ export default function ComplaintForm({
 
             {/* Styled Drag & Drop Upload Zone (Screen 08) */}
             <div className="form-field">
-              <label>Upload Image (Optional)</label>
-              <div className="upload-dropzone" role="region" aria-label="Image upload area">
+              <label>Upload Images (Optional)</label>
+              <div
+                className={`upload-dropzone ${isDragging ? "dropzone-dragging" : ""}`}
+                role="button"
+                tabIndex={0}
+                aria-label="Image upload area"
+                onClick={() => fileInputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (e.dataTransfer?.files) {
+                    handleFiles(e.dataTransfer.files);
+                  }
+                }}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: "none" }}
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={(e) => {
+                    if (e.target.files) {
+                      handleFiles(e.target.files);
+                      e.target.value = "";
+                    }
+                  }}
+                />
                 <IconUploadCloud size={34} className="upload-cloud-icon" />
                 <p className="upload-text">
                   <strong>Click to upload</strong> or drag and drop
                 </p>
-                <span className="upload-hint">PNG, JPG up to 5MB</span>
-                <span className="upload-status-note">
-                  (Image upload preview mode — server attachment storage coming soon)
+                <span className="upload-hint">
+                  PNG, JPG, WebP, GIF up to 5MB (Max {MAX_PHOTOS} photos)
                 </span>
               </div>
+
+              {imageError && (
+                <Banner
+                  type="error"
+                  message={imageError}
+                  onClose={() => setImageError("")}
+                />
+              )}
+
+              {/* Previews of selected images */}
+              {selectedImages.length > 0 && (
+                <div className="upload-preview-grid">
+                  {selectedImages.map((img) => (
+                    <div key={img.id} className="upload-preview-card">
+                      <img
+                        src={img.previewUrl}
+                        alt={img.name}
+                        className="upload-preview-thumb"
+                      />
+                      <div className="upload-preview-meta">
+                        <span className="upload-preview-name" title={img.name}>
+                          {img.name}
+                        </span>
+                        <span className="upload-preview-size">
+                          {(img.size / 1024).toFixed(0)} KB
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="upload-preview-remove"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemoveImage(img.id);
+                        }}
+                        aria-label={`Remove ${img.name}`}
+                        title="Remove image"
+                      >
+                        <IconX size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Upload progress indicator */}
+              {submitting && uploadProgress !== null && (
+                <div className="upload-progress-box">
+                  <div className="upload-progress-label">
+                    <span>Uploading images...</span>
+                    <strong>{uploadProgress}%</strong>
+                  </div>
+                  <div className="upload-progress-track">
+                    <div
+                      className="upload-progress-fill"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <Banner

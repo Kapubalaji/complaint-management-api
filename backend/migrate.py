@@ -5,16 +5,18 @@ import backend.models  # Ensures all models are registered
 def run_migrations():
     """
     Safely migrates database schema without dropping existing tables or data.
-    Adds missing columns to 'users' and 'complaints' tables, and creates
-    'complaint_comments' table if it does not exist.
+    Adds missing columns to 'users', 'complaints', and 'complaint_images' tables,
+    and creates 'complaint_comments' and 'complaint_images' tables if they do not exist.
     """
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()
 
-    # 1. Ensure all new tables (e.g. complaint_comments) are created
+    # 1. Ensure all new tables (e.g. complaint_comments, complaint_images) are created
     Base.metadata.create_all(bind=engine)
 
     with engine.begin() as conn:
+        # Re-check tables after create_all
+        updated_tables = inspect(conn).get_table_names()
         # 2. Migrate 'users' table
         if "users" in existing_tables:
             user_columns = [col["name"] for col in inspector.get_columns("users")]
@@ -66,6 +68,26 @@ def run_migrations():
             
             if "resolved_at" not in complaint_columns:
                 conn.execute(text("ALTER TABLE complaints ADD COLUMN resolved_at TIMESTAMP WITH TIME ZONE;"))
+
+        # 4. Migrate 'complaint_images' table
+        if "complaint_images" in updated_tables:
+            conn_inspector = inspect(conn)
+            image_columns = [col["name"] for col in conn_inspector.get_columns("complaint_images")]
+
+            if "public_id" not in image_columns:
+                conn.execute(text("ALTER TABLE complaint_images ADD COLUMN public_id VARCHAR(255);"))
+
+            if "image_type" not in image_columns:
+                conn.execute(text("ALTER TABLE complaint_images ADD COLUMN image_type VARCHAR(50) NOT NULL DEFAULT 'issue';"))
+
+            if "original_filename" not in image_columns:
+                conn.execute(text("ALTER TABLE complaint_images ADD COLUMN original_filename VARCHAR(255);"))
+
+            if "file_size" not in image_columns:
+                conn.execute(text("ALTER TABLE complaint_images ADD COLUMN file_size INTEGER;"))
+
+            if "mime_type" not in image_columns:
+                conn.execute(text("ALTER TABLE complaint_images ADD COLUMN mime_type VARCHAR(100);"))
 
 if __name__ == "__main__":
     run_migrations()

@@ -29,6 +29,9 @@ class Complaint(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     resolved_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Images attached to complaint (issue photos and repair completion photos)
+    images = relationship("ComplaintImage", back_populates="complaint", cascade="all, delete-orphan", lazy="selectin", order_by="ComplaintImage.created_at.asc()")
+
 
 class ComplaintComment(Base):
     __tablename__ = "complaint_comments"
@@ -39,3 +42,21 @@ class ComplaintComment(Base):
     comment = Column(Text, nullable=False)
     is_internal = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ComplaintImage(Base):
+    __tablename__ = "complaint_images"
+
+    id = Column(Integer, primary_key=True)
+    complaint_id = Column(Integer, ForeignKey("complaints.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    image_url = Column(String(1000), nullable=False)
+    public_id = Column(String(255), nullable=True)
+    image_type = Column(String(50), nullable=False, default="issue")  # "issue" or "repair"
+    original_filename = Column(String(255), nullable=True)
+    file_size = Column(Integer, nullable=True)
+    mime_type = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    complaint = relationship("Complaint", back_populates="images")
+    uploader = relationship("User", foreign_keys=[user_id], lazy="joined")

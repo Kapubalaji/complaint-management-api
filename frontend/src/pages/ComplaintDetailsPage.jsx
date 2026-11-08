@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import * as api from "../api.js";
 import AiInsights from "../components/AiInsights.jsx";
 import CommentThread from "../components/CommentThread.jsx";
@@ -24,6 +24,10 @@ import {
   IconCalendar,
   IconClock,
   IconTag,
+  IconUploadCloud,
+  IconX,
+  IconTrash,
+  IconExternalLink,
 } from "../components/Icons.jsx";
 
 export default function ComplaintDetailsPage({
@@ -39,8 +43,18 @@ export default function ComplaintDetailsPage({
   onChanged,
 }) {
   const [complaint, setComplaint] = useState(null);
+  const [images, setImages] = useState([]);
+  const [selectedModalImage, setSelectedModalImage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+
+  // Staff repair upload states
+  const [repairFiles, setRepairFiles] = useState([]);
+  const [isDraggingRepair, setIsDraggingRepair] = useState(false);
+  const [repairError, setRepairError] = useState("");
+  const [repairBusy, setRepairBusy] = useState(false);
+  const [repairProgress, setRepairProgress] = useState(null);
+  const repairFileInputRef = useRef(null);
 
   const [statusValue, setStatusValue] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
@@ -63,6 +77,7 @@ export default function ComplaintDetailsPage({
       (data) => {
         if (cancelled) return;
         setComplaint(data);
+        setImages(data.images || []);
         setStatusValue(data.status || "open");
         setAssignee(
           data.assigned_staff_id ? String(data.assigned_staff_id) : ""
@@ -86,6 +101,123 @@ export default function ComplaintDetailsPage({
     };
   }, [token, complaintId, handleError]);
 
+  useEffect(() => {
+    return () => {
+      repairFiles.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+    };
+  }, [repairFiles]);
+
+  function handleRepairFilesSelect(filesList) {
+    setRepairError("");
+    const incoming = Array.from(filesList);
+    if (!incoming.length) return;
+
+    const currentTotal = images.length + repairFiles.length;
+    if (currentTotal + incoming.length > 10) {
+      setRepairError(
+        `Cannot add ${incoming.length} image(s). A complaint can have at most 10 images (currently has ${currentTotal}).`
+      );
+      return;
+    }
+
+    const validated = [];
+    for (const file of incoming) {
+      if (
+        !["image/jpeg", "image/png", "image/webp", "image/gif"].includes(
+          file.type
+        )
+      ) {
+        setRepairError(
+          `"${file.name}" is not a supported image format. Supported formats: PNG, JPG, WebP, GIF.`
+        );
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        setRepairError(`"${file.name}" exceeds the 5MB size limit.`);
+        return;
+      }
+      validated.push({
+        id: `${file.name}-${file.lastModified}-${Math.random()}`,
+        file,
+        name: file.name,
+        size: file.size,
+        previewUrl: URL.createObjectURL(file),
+      });
+    }
+
+    setRepairFiles((prev) => [...prev, ...validated]);
+  }
+
+  function handleRemoveRepairFile(idToRemove) {
+    setRepairFiles((prev) => {
+      const item = prev.find((i) => i.id === idToRemove);
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((i) => i.id !== idToRemove);
+    });
+  }
+
+  async function handleUploadRepairPhotos() {
+    if (!repairFiles.length) return;
+    setRepairBusy(true);
+    setRepairError("");
+    setRepairProgress(0);
+
+    try {
+      const uploaded = await api.uploadComplaintImages(
+        token,
+        complaintId,
+        repairFiles.map((item) => item.file),
+        "repair",
+        (pct) => setRepairProgress(pct)
+      );
+
+      repairFiles.forEach((item) => {
+        if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+      });
+      setRepairFiles([]);
+      setImages((prev) => [...prev, ...uploaded]);
+      notify("success", "Repair completion photo(s) uploaded successfully.");
+      onChanged();
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        handleError(err);
+        return;
+      }
+      setRepairError(err.message || "Failed to upload repair photos.");
+    } finally {
+      setRepairBusy(false);
+      setRepairProgress(null);
+    }
+  }
+
+  async function handleDeleteImage(image) {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${image.original_filename || "this photo"}"?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api.deleteComplaintImage(token, complaintId, image.id);
+      setImages((prev) => prev.filter((img) => img.id !== image.id));
+      if (selectedModalImage?.id === image.id) {
+        setSelectedModalImage(null);
+      }
+      notify("success", "Image deleted successfully.");
+      onChanged();
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        handleError(err);
+        return;
+      }
+      notify("error", err.message || "Failed to delete image.");
+    }
+  }
+
   async function handleStatusUpdate(event) {
     event.preventDefault();
     setStatusError("");
@@ -97,6 +229,35 @@ export default function ComplaintDetailsPage({
 
     setStatusBusy(true);
     try {
+      // If staff has selected repair files, automatically upload them with the status update
+      if (repairFiles.length > 0) {
+        setRepairBusy(true);
+        setRepairProgress(0);
+        try {
+          const uploaded = await api.uploadComplaintImages(
+            token,
+            complaintId,
+            repairFiles.map((item) => item.file),
+            "repair",
+            (pct) => setRepairProgress(pct)
+          );
+          repairFiles.forEach((item) => {
+            if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+          });
+          setRepairFiles([]);
+          setImages((prev) => [...prev, ...uploaded]);
+          notify("success", "Finishing work photo(s) uploaded successfully.");
+        } catch (uploadErr) {
+          notify(
+            "error",
+            `Status updated, but finishing photo upload failed: ${uploadErr.message}`
+          );
+        } finally {
+          setRepairBusy(false);
+          setRepairProgress(null);
+        }
+      }
+
       const updated = await api.updateComplaintStatus(token, complaintId, {
         status: statusValue,
         resolution_note: resolutionNote.trim() || undefined,
@@ -207,6 +368,9 @@ export default function ComplaintDetailsPage({
     ? resolveUserLabel(complaint.assigned_staff_id, session, staffMap)
     : null;
 
+  const issueImages = images.filter((img) => img.image_type === "issue");
+  const repairImages = images.filter((img) => img.image_type === "repair");
+
   return (
     <>
       <section className="complaints-panel detail-panel">
@@ -283,16 +447,237 @@ export default function ComplaintDetailsPage({
               <p className="detail-description">{complaint.description}</p>
             </article>
 
-            {/* Attached Image Preview Card (Screen 06) */}
+            {/* Complaint Issue Photos */}
             <article className="detail-card">
-              <h3>Image</h3>
-              <div className="image-preview-box">
-                <div className="image-preview-placeholder">
-                  <span className="preview-tag">Attached Photo Preview</span>
-                  <p className="preview-sub">#{complaint.id} &bull; {complaint.category || "Issue"}</p>
-                </div>
+              <div className="card-header-row">
+                <h3>Complaint Issue Photos ({issueImages.length})</h3>
               </div>
+              {issueImages.length > 0 ? (
+                <div className="image-gallery-grid">
+                  {issueImages.map((img) => (
+                    <div
+                      key={img.id}
+                      className="image-card"
+                      onClick={() => setSelectedModalImage(img)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedModalImage(img);
+                        }
+                      }}
+                    >
+                      <div className="image-card-thumb-wrap">
+                        <img
+                          src={img.image_url}
+                          alt={img.original_filename || "Issue photo"}
+                          className="image-card-thumb"
+                          loading="lazy"
+                        />
+                      </div>
+                      <div className="image-card-meta">
+                        <span
+                          className="image-card-title"
+                          title={img.original_filename}
+                        >
+                          {img.original_filename || `Photo #${img.id}`}
+                        </span>
+                        <span className="image-card-date">
+                          {formatDate(img.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="unassigned-notice">
+                  No issue photos attached to this complaint.
+                </p>
+              )}
             </article>
+
+            {/* Repair Completion Photos (Restricted to Staff and Admin) */}
+            {staff && (
+              <article className="detail-card">
+                <div className="card-header-row">
+                  <h3>Repair Completion Photos ({repairImages.length})</h3>
+                  {repairImages.length > 0 && (
+                    <span className="preview-tag">Proof of Repair (Admin & Staff View)</span>
+                  )}
+                </div>
+
+              {repairImages.length > 0 ? (
+                <div className="image-gallery-grid">
+                  {repairImages.map((img) => (
+                    <div
+                      key={img.id}
+                      className="image-card repair-card"
+                      onClick={() => setSelectedModalImage(img)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setSelectedModalImage(img);
+                        }
+                      }}
+                    >
+                      <div className="image-card-thumb-wrap">
+                        <img
+                          src={img.image_url}
+                          alt={img.original_filename || "Repair completion photo"}
+                          className="image-card-thumb"
+                          loading="lazy"
+                        />
+                        <span className="repair-badge-overlay">Repair Proof</span>
+                      </div>
+                      <div className="image-card-meta">
+                        <span
+                          className="image-card-title"
+                          title={img.original_filename}
+                        >
+                          {img.original_filename || `Repair #${img.id}`}
+                        </span>
+                        <span className="image-card-date">
+                          {formatDate(img.created_at)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="unassigned-notice">
+                  {staff
+                    ? "No repair completion photos uploaded yet. Use the upload area below to attach proof of repair."
+                    : "No repair completion photos uploaded yet. Technicians will attach photos once work is completed."}
+                </p>
+              )}
+
+              {/* Staff / Admin Upload Control */}
+              <div className="repair-upload-section">
+                  <h4 className="repair-section-heading">Upload Proof of Repair</h4>
+                  <div
+                    className={`upload-dropzone ${isDraggingRepair ? "dropzone-dragging" : ""}`}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Upload repair completion images"
+                    onClick={() => repairFileInputRef.current?.click()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        repairFileInputRef.current?.click();
+                      }
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDraggingRepair(true);
+                    }}
+                    onDragLeave={() => setIsDraggingRepair(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingRepair(false);
+                      if (e.dataTransfer?.files) {
+                        handleRepairFilesSelect(e.dataTransfer.files);
+                      }
+                    }}
+                  >
+                    <input
+                      type="file"
+                      ref={repairFileInputRef}
+                      style={{ display: "none" }}
+                      multiple
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      onChange={(e) => {
+                        if (e.target.files) {
+                          handleRepairFilesSelect(e.target.files);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                    <IconUploadCloud size={28} className="upload-cloud-icon" />
+                    <p className="upload-text">
+                      <strong>Click to upload</strong> or drag and drop repair photos
+                    </p>
+                    <span className="upload-hint">PNG, JPG up to 5MB</span>
+                  </div>
+
+                  {repairError && (
+                    <Banner
+                      type="error"
+                      message={repairError}
+                      onClose={() => setRepairError("")}
+                    />
+                  )}
+
+                  {/* Previews before upload */}
+                  {repairFiles.length > 0 && (
+                    <div className="upload-preview-grid">
+                      {repairFiles.map((item) => (
+                        <div key={item.id} className="upload-preview-card">
+                          <img
+                            src={item.previewUrl}
+                            alt={item.name}
+                            className="upload-preview-thumb"
+                          />
+                          <div className="upload-preview-meta">
+                            <span className="upload-preview-name" title={item.name}>
+                              {item.name}
+                            </span>
+                            <span className="upload-preview-size">
+                              {(item.size / 1024).toFixed(0)} KB
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className="upload-preview-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRemoveRepairFile(item.id);
+                            }}
+                            aria-label={`Remove ${item.name}`}
+                            disabled={repairBusy}
+                          >
+                            <IconX size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Upload progress */}
+                  {repairBusy && repairProgress !== null && (
+                    <div className="upload-progress-box">
+                      <div className="upload-progress-label">
+                        <span>Uploading repair photos...</span>
+                        <strong>{repairProgress}%</strong>
+                      </div>
+                      <div className="upload-progress-track">
+                        <div
+                          className="upload-progress-fill"
+                          style={{ width: `${repairProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {repairFiles.length > 0 && (
+                    <div className="repair-upload-actions">
+                      <button
+                        type="button"
+                        className="primary-button"
+                        onClick={handleUploadRepairPhotos}
+                        disabled={repairBusy}
+                      >
+                        {repairBusy
+                          ? "Uploading..."
+                          : `Upload ${repairFiles.length} Repair Photo${repairFiles.length > 1 ? "s" : ""}`}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </article>
+            )}
 
             {/* Reported By Section (Admin and Staff only) */}
             {staff && (
@@ -473,6 +858,81 @@ export default function ComplaintDetailsPage({
           </aside>
         </div>
       </section>
+
+      {/* Lightbox / Full-size photo modal */}
+      {selectedModalImage && (
+        <div
+          className="image-modal-backdrop"
+          onClick={() => setSelectedModalImage(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="image-modal-container"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="image-modal-header">
+              <div className="image-modal-title-wrap">
+                <h4>{selectedModalImage.original_filename || "Photo"}</h4>
+                <span
+                  className={`image-type-pill ${selectedModalImage.image_type === "repair" ? "pill-repair" : "pill-issue"}`}
+                >
+                  {selectedModalImage.image_type === "repair"
+                    ? "Repair Proof"
+                    : "Issue Photo"}
+                </span>
+              </div>
+              <div className="image-modal-actions">
+                <a
+                  href={selectedModalImage.image_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="image-modal-btn"
+                  title="Open full resolution in new tab"
+                >
+                  <IconExternalLink size={16} />
+                </a>
+                {(session?.role === "admin" ||
+                  session?.userId === selectedModalImage.user_id) && (
+                  <button
+                    type="button"
+                    className="image-modal-btn btn-danger"
+                    onClick={() => handleDeleteImage(selectedModalImage)}
+                    title="Delete image"
+                  >
+                    <IconTrash size={16} />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="image-modal-btn btn-close"
+                  onClick={() => setSelectedModalImage(null)}
+                  title="Close"
+                >
+                  <IconX size={18} />
+                </button>
+              </div>
+            </div>
+
+            <div className="image-modal-body">
+              <img
+                src={selectedModalImage.image_url}
+                alt={selectedModalImage.original_filename || "Complaint Photo"}
+                className="image-modal-full"
+              />
+            </div>
+
+            <div className="image-modal-footer">
+              <span>Uploaded: {formatDate(selectedModalImage.created_at)}</span>
+              {selectedModalImage.file_size && (
+                <span>
+                  Size: {(selectedModalImage.file_size / 1024).toFixed(0)} KB
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
